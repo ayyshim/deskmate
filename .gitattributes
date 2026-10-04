@@ -1,0 +1,4 @@
+# Everything here runs in Linux containers or a POSIX shell: keep LF even on Windows checkouts.
+* text=auto eol=lf
+*.png binary
+*.svg text eol=lf
