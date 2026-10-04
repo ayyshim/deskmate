@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deskmate</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect x='2.5' y='3.5' width='21' height='14' rx='2.5' fill='none' stroke='%232D58D2' stroke-width='2'/%3E%3Cpath d='M9 22.5h8M13 17.5v5' stroke='%232D58D2' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='18.5' cy='8.5' r='2.2' fill='%23A35C06'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <span class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect x="2.5" y="3.5" width="21" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 22.5h8M13 17.5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="18.5" cy="8.5" r="2.2" fill="var(--knock)"/></svg>
+      Deskmate
+    </span>
+    <nav class="views" role="tablist" aria-label="Views">
+      <button role="tab" data-view="desk" aria-selected="true">Desk</button>
+      <button role="tab" data-view="secretary" aria-selected="false">Secretary</button>
+    </nav>
+    <span class="conn" id="conn"><i></i><span>connecting</span></span>
+  </div>
+</header>
+
+<main class="wrap">
+  <section id="view-desk">
+    <div class="desk-grid">
+      <div class="desk-main">
+        <div class="strip">
+          <span class="holder" id="holder"><i></i><span id="holderText">Input: free</span></span>
+          <span class="now" id="nowText">Waiting for a session</span>
+          <span class="mono dim" id="deskInfo"></span>
+        </div>
+
+        <div id="knocks"></div>
+
+        <div class="monbar">
+          <div class="seg" id="monSeg"></div>
+          <span class="note" id="viewNote">View only. Press Take over to use the mouse and keyboard.</span>
+        </div>
+        <div class="bezel">
+          <div class="viewport" id="viewport">
+            <div class="rfb-host" id="rfbHost"></div>
+            <div class="ring" id="ring" hidden><span id="ringText">You have the desk. Agents are waiting.</span></div>
+            <div class="screen-msg" id="screenMsg">Connecting to the desk…</div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="btn primary" id="btnTake">Take over</button>
+          <button class="btn" id="btnPause">Pause agents</button>
+          <button class="btn" id="btnClipTo" title="Send your clipboard to the desk">Send clipboard</button>
+          <button class="btn" id="btnClipFrom" title="Copy the desk's clipboard to yours">Get desk clipboard</button>
+          <label class="btn" for="upload">Upload a file</label>
+          <input type="file" id="upload" hidden>
+          <span class="sep"></span>
+          <button class="btn quiet" id="btnRestart">Restart browser</button>
+        </div>
+      </div>
+
+      <aside class="rail">
+        <section class="card">
+          <h3 class="label">Sessions on the desk</h3>
+          <ul class="sess" id="sessions"><li class="dim">No session has used the desk yet.</li></ul>
+        </section>
+        <section class="card">
+          <h3 class="label">Activity <span class="filters" id="filters"></span></h3>
+          <ol class="feed" id="feed" data-f="all"></ol>
+        </section>
+        <section class="card">
+          <h3 class="label">Downloads on the desk</h3>
+          <ul class="files" id="files"><li class="dim">Nothing downloaded yet.</li></ul>
+        </section>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-secretary" hidden>
+    <div class="soon">
+      <h1 class="h1">Secretary</h1>
+      <p class="lede">Today, Timeline, Sessions, Board, Open loops, Decisions and Ask arrive with milestones M4–M6. The prototype shows how they will look.</p>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

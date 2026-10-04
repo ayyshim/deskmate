@@ -12,6 +12,8 @@ help:
 	@echo "make isolated  the same, but the desk cannot reach this machine's localhost"
 	@echo "make down      stop both"
 	@echo "make logs      follow the logs"
+	@echo "make open      open the web UI (prints a sign-in link)"
+	@echo "make install   connect Claude Code: MCP server, hooks, skill (make uninstall undoes it)"
 
 # .env holds the hub token and the secretary's Claude login. Never commit it.
 env:
@@ -44,3 +46,17 @@ ps:
 
 desk-shell:
 	docker exec -it -e DISPLAY=:87 -e XAUTHORITY=/tmp/.Xauthority deskmate-desk bash
+
+.PHONY: open install uninstall
+
+# Prints the one-time sign-in link for the web UI and opens it.
+open:
+	@TOKEN=$$(grep '^DESKMATE_TOKEN=' .env | cut -d= -f2-); \
+	  echo "http://127.0.0.1:7800/login?t=$$TOKEN"; \
+	  (xdg-open "http://127.0.0.1:7800/login?t=$$TOKEN" >/dev/null 2>&1 &) || true
+
+install:
+	scripts/install.sh
+
+uninstall:
+	scripts/uninstall.sh

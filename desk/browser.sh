@@ -9,6 +9,9 @@ PROFILE="$HOME/.config/deskmate-chromium"
 mkdir -p "$PROFILE"
 
 while true; do
+  # This loop is the only Chromium on the desk, so a lock left by an earlier container (it records
+  # that container's hostname) is always stale; without this Chromium refuses the profile.
+  rm -f "$PROFILE/SingletonLock" "$PROFILE/SingletonSocket" "$PROFILE/SingletonCookie"
   # Never show "Chromium didn't shut down correctly": mark the last exit as clean.
   PREFS="$PROFILE/Default/Preferences"
   if [ -f "$PREFS" ]; then
