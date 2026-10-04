@@ -1,0 +1,10 @@
+# Same pins as Fleet where they overlap (fleet/backend/requirements.txt), so the two agree on the
+# Agent SDK and the MCP version it pulls in.
+fastapi==0.141.1
+uvicorn[standard]==0.41.0
+httpx==0.28.1
+mcp==1.30.0
+claude-agent-sdk==0.2.134
+playwright==1.63.0
+pillow==11.3.0
+tzdata

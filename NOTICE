@@ -1,0 +1,17 @@
+Deskmate
+Copyright 2026 Ashim Upadhaya
+
+Parts of the desk container are adapted from Deskfish (https://github.com/0x11c11e/deskfish),
+Copyright 2026 Iman Reihanian, licensed under the Apache License, Version 2.0
+(LICENSES/Apache-2.0.txt):
+
+  desk/deskd.mjs     from docker/desktop/daemon.mjs (modified: unix socket, no page bridge,
+                     no websockify proxy, Chromium instead of Firefox, restart_browser)
+  desk/entrypoint.sh from docker/desktop/entrypoint.sh (modified)
+  desk/tint2rc       from docker/desktop/tint2rc (launchers changed)
+  desk/terminal.svg  from docker/desktop/terminal.svg
+  desk/Dockerfile    structure from docker/desktop/Dockerfile
+
+The Deskfish name and mascot are not used.
+
+The hub serves noVNC (MPL-2.0, https://github.com/novnc/noVNC) from the Debian `novnc` package.

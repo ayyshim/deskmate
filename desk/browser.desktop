@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Browser
+Comment=A window of the desk's shared Chromium
+Exec=chromium --user-data-dir=/home/bot/.config/deskmate-chromium --no-sandbox --test-type %U
+Icon=chromium
+Terminal=false
+Categories=Network;WebBrowser;

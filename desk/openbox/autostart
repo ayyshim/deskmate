@@ -1,0 +1,13 @@
+#!/bin/sh
+# Runs once when the Openbox session starts.
+# Wallpaper rendered for this screen size; a plain colour if that fails.
+GEOM=$(xdotool getdisplaygeometry 2>/dev/null)
+if rsvg-convert -w "${GEOM%% *}" -h "${GEOM##* }" /usr/share/deskmate/wallpaper.svg -o /tmp/wallpaper.png 2>/dev/null; then
+  feh --no-fehbg --bg-fill /tmp/wallpaper.png &
+else
+  xsetroot -solid "#0e1b29" &
+fi
+# The bottom panel (config from the image, never from the persisted home).
+tint2 -c /etc/xdg/tint2/tint2rc >/tmp/tint2.log 2>&1 &
+# The one browser every session shares, restarted if it ever exits.
+/opt/desk/browser.sh &

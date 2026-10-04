@@ -1,0 +1,20 @@
+{
+  "DownloadDirectory": "/home/bot/Downloads",
+  "PromptForDownloadLocation": false,
+  "DefaultBrowserSettingEnabled": false,
+  "MetricsReportingEnabled": false,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "PromotionalTabsEnabled": false,
+  "BackgroundModeEnabled": false,
+  "TranslateEnabled": false,
+  "RestoreOnStartup": 5,
+  "HomepageLocation": "about:blank",
+  "NewTabPageLocation": "about:blank",
+  "ShowHomeButton": false,
+  "BookmarkBarEnabled": false,
+  "PasswordManagerEnabled": true,
+  "AutofillCreditCardEnabled": false,
+  "WindowManagementAllowedForUrls": ["*"],
+  "AutomaticFullscreenAllowlist": ["localhost", "127.0.0.1"]
+}

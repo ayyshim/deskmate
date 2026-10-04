@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=A terminal on the desk
+Exec=xterm -fa Monospace -fs 11
+Icon=/usr/share/deskmate/terminal.png
+Terminal=false
+Categories=System;

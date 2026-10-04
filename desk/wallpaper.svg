@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="g" cx="18%" cy="8%" r="120%">
+      <stop offset="0" stop-color="#24496C"/>
+      <stop offset="0.46" stop-color="#132940"/>
+      <stop offset="1" stop-color="#0A1520"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#g)"/>
+  <text x="1560" y="880" text-anchor="end" font-family="DejaVu Sans" font-weight="bold" font-size="56" fill="#ffffff" fill-opacity="0.07">deskmate</text>
+</svg>

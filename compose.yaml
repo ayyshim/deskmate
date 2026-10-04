@@ -1,0 +1,68 @@
+# Deskmate: one shared desk for Claude Code sessions, and a secretary for the claude/ hub.
+#
+#   make up        build and start both containers (host networking, every listener on 127.0.0.1)
+#   make isolated  the same, but the desk's browser cannot reach this machine's localhost
+#
+# desk  the computer: Xvfb, Openbox, Chromium (CDP 127.0.0.1:7802), xterm, x11vnc, deskd.
+#       deskd and VNC listen on unix sockets in the `deskrun` volume, which only the hub mounts.
+# hub   MCP server, web UI and live view on 127.0.0.1:7800, and the secretary.
+#
+# Host networking is decision D2 in claude/design/deskmate/00-overview.md: without it the desk's
+# browser cannot open dev servers bound to localhost (sageweb, edm_react, Fleet).
+name: deskmate
+
+services:
+  desk:
+    build: ./desk
+    image: localhost/deskmate-desk:latest
+    container_name: deskmate-desk
+    hostname: desk
+    network_mode: host
+    restart: unless-stopped
+    shm_size: "1g"
+    environment:
+      MONITORS: "2"
+      MONITOR_SIZE: 1280x800
+      DISPLAY_NUM: "87"
+      CDP_PORT: "7802"
+    volumes:
+      - desk-home:/home/bot
+      - deskrun:/run/desk
+
+  hub:
+    build: ./hub
+    image: localhost/deskmate-hub:latest
+    container_name: deskmate-hub
+    network_mode: host
+    restart: unless-stopped
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    depends_on: [desk]
+    env_file:
+      - path: ./.env
+        required: true
+    environment:
+      HOME: /data/home
+      HUB_PORT: "7800"
+      HUB_DATA: /data
+      CDP_URL: http://127.0.0.1:7802
+      DESKD_SOCKET: /run/desk/deskd.sock
+      VNC_SOCKET: /run/desk/vnc.sock
+      HOST_HOME: ${HOME}
+      # read-only views of this machine, see the volumes below
+      PROJECTS_DIR: /ro/projects
+      SESSIONS_DIR: /ro/sessions
+      WEBHOOK_FILE: /run/secrets/discord-webhook.url
+      EXCHANGE_DIR: /exchange
+      EXCHANGE_HOST_DIR: ${HOME}/.local/share/deskmate/exchange
+    volumes:
+      - deskrun:/run/desk
+      - ${HOME}/.local/share/deskmate/hub:/data
+      - ${HOME}/.local/share/deskmate/exchange:/exchange
+      # The secretary reads; it never writes (D4). Secrets are refused by path in the Ask tool.
+      - ${HOME}/Projects:/ro/projects:ro
+      - ${HOME}/.claude/projects:/ro/sessions:ro
+      - ${HOME}/.config/claude-notify/discord-webhook.url:/run/secrets/discord-webhook.url:ro
+
+volumes:
+  desk-home:
+  deskrun:
