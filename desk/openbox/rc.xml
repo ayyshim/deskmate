@@ -655,7 +655,7 @@
 
 <applications>
   <!-- Deskmate: the shared browser's main windows open maximized on monitor 1. Pop-ups (an app's
-       second window, such as edm_react's customer display) are left alone so the app can place them
+       second window, such as a point-of-sale app's customer display) are left alone so the app can place them
        on monitor 2 itself. -->
   <application class="Chromium" role="browser" type="normal">
     <monitor>1</monitor>

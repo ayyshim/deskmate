@@ -3,7 +3,10 @@
 # started again a second later; `deskd` action restart_browser just kills it.
 #
 # Its own profile directory: Chromium refuses remote debugging on the default one, and the panel's
-# Browser launcher opens windows in this same instance.
+# Browser launcher opens windows in this same instance (chromium-window.sh).
+#
+# HOST_RULES (built by entrypoint.sh from DESK_NETWORK) become --host-resolver-rules: in the bridge
+# modes they point localhost at this machine, or keep the browser off it.
 : "${CDP_PORT:=7802}"
 PROFILE="$HOME/.config/deskmate-chromium"
 mkdir -p "$PROFILE"
@@ -23,6 +26,7 @@ while true; do
     --user-data-dir="$PROFILE" \
     --remote-debugging-port="$CDP_PORT" \
     --remote-debugging-address=127.0.0.1 \
+    ${HOST_RULES:+"--host-resolver-rules=$HOST_RULES"} \
     --no-first-run --no-default-browser-check \
     --no-sandbox --test-type \
     --password-store=basic \

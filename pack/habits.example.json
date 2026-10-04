@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "mode": "remind",
+  "max_blocks": 2,
+  "skill": "habits:changelog-entry",
+  "roots": [
+    {
+      "path": "~/work",
+      "hub": "~/work/claude",
+      "changelog_dir": "changelog",
+      "skip_repos": ["scratch"],
+      "repo_names": {"api-v2": "api"},
+      "work_tree": null
+    }
+  ]
+}

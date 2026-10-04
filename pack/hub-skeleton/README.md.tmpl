@@ -1,0 +1,24 @@
+# {title}
+
+Shared documentation, design docs and changelogs for the repos in this workspace. The rules for using this hub are in the "Working habits" section of the workspace `CLAUDE.md`. **Start here, then go to the repo you are working in.**
+
+## Map
+
+| Section | What is in it |
+|---|---|
+| [projects/](projects/README.md) | One folder per repo. Start with `projects/<repo>/INDEX.md` |
+| [knowledge-base/](knowledge-base/README.md) | What crosses repos: conventions, permissions, environments, known issues, glossary |
+| [design/](design/README.md) | Design docs, one folder per feature. Template in `design/_template.md` |
+| [changelog/](changelog/README.md) | One folder per repo, one file per day: `changelog/<repo>/YYYY-MM-DD.md` |
+
+## Repos
+
+{repo_list}
+
+## Working rules (short version)
+
+1. Read the repo's `projects/<repo>/INDEX.md` and the relevant module doc before changing code.
+2. Non-trivial feature: a design doc in `design/<feature>/` first, kept current while building.
+3. Every change: an entry in `changelog/<repo>/<today>.md`, with the impact on other repos.
+4. Learned something that is not written here: add it to `projects/` or `knowledge-base/`.
+5. No secrets in this folder. Refer to credential files by path only.

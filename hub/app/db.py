@@ -97,14 +97,27 @@ _lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
 
 
+def _private(path) -> None:
+    """The journal holds URLs and what sessions did: 0600, also for a database an older hub made 0644.
+    New files are 0600 anyway (main.prepare sets umask 077). Best effort: some file systems ignore modes."""
+    try:
+        if path.exists() and (path.stat().st_mode & 0o777) != 0o600:
+            path.chmod(0o600)
+    except OSError:
+        pass
+
+
 def conn() -> sqlite3.Connection:
     global _conn
     if _conn is None:
         config.DATA.mkdir(parents=True, exist_ok=True)
-        c = sqlite3.connect(config.DATA / "deskmate.db", check_same_thread=False, isolation_level=None)
+        path = config.DATA / "deskmate.db"
+        c = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         c.row_factory = sqlite3.Row
         c.execute("pragma journal_mode=wal")
         c.executescript(SCHEMA)
+        for p in (path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
+            _private(p)
         _conn = c
     return _conn
 

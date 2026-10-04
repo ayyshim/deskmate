@@ -3,7 +3,7 @@
 A session is first known only by its MCP session id. The PreToolUse hook (matcher
 `mcp__deskmate__.*`) tells the hub which Claude Code session and working directory is about to
 call which tool with which arguments; the next MCP call with the same tool and arguments links
-the two (design question Q1). After that the session is shown as "edm_react · <first why>".
+the two (design question Q1). After that the session is shown as "my-app · <first why>".
 """
 
 from __future__ import annotations

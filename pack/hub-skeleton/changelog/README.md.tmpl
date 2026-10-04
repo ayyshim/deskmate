@@ -1,0 +1,41 @@
+# Changelogs
+
+One folder per repo, one file per day. Every Claude Code session that changes a repo appends to (or creates) `changelog/<repo>/YYYY-MM-DD.md` at the end of the change.
+
+| Repo | Folder |
+|---|---|
+{changelog_rows}
+
+## File format
+
+Filename: `YYYY-MM-DD.md`, the date the change was made, in local time. If the file already exists for that day, append a new entry. Never overwrite earlier entries.
+
+```markdown
+# {today}
+
+## HH:MM — <short title of the change>
+
+**Scope:** <module or area touched, e.g. `billing`, `apps/admin`>
+**Type:** feature | fix | refactor | chore | docs | test
+**Design doc:** design/<feature>/... (if any)
+
+### What changed
+- One bullet per meaningful change, with file paths (`src/billing/invoice.py`).
+
+### Why
+- One or two lines of motivation, or the ticket.
+
+### How to verify
+- Commands run, tests added or updated, manual steps.
+
+### Follow-ups / risks
+- Migrations or commands to run on deploy, permissions to update, the impact on other repos, breaking API changes for clients.
+```
+
+## Rules
+
+- One entry per logical change, not per file. A change that spans repos gets an entry in each repo's file.
+- Always state the impact on other repos (an API change a client consumes, a permission name a frontend checks, data that syncs between services), or say there is none.
+- Never paste secrets, tokens or `.env` values.
+- Keep entries short. Link the design doc for detail.
+- Two people can append to the same day's file. `.gitattributes` at the hub root merges these files with `merge=union`, so both entries are kept.

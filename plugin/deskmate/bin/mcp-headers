@@ -1,0 +1,32 @@
+#!/bin/sh
+# Claude Code's headersHelper for the deskmate MCP server: prints {"Authorization": "Bearer <token>"}.
+# Claude Code stores only this script's path, so the token never sits in its config files. The token
+# stays in its 0600 file and is never an argument of a separate process (printf is a shell builtin).
+# `./deskmate connect` copies this script to <data folder>/bin/mcp-headers.
+
+conf=${XDG_CONFIG_HOME:-$HOME/.config}/deskmate/client.env
+[ -r "$conf" ] || conf=$HOME/.config/deskmate/client.env
+token_file=''
+if [ -r "$conf" ]; then
+  cr=$(printf '\r')
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%"$cr"}
+    case $line in
+      TOKEN_FILE=*) token_file=${line#TOKEN_FILE=} ;;
+    esac
+  done < "$conf"
+fi
+# Without client.env, the installed copy finds the token next to it: <data>/bin → <data>/secrets.
+[ -n "$token_file" ] || token_file=$(dirname "$0")/../secrets/hub-token
+if [ ! -r "$token_file" ]; then
+  echo "deskmate: no hub token at $token_file. Run ./deskmate setup." >&2
+  exit 1
+fi
+token=$(tr -d ' \t\r\n' < "$token_file")
+case $token in
+  '' | *[!A-Za-z0-9._~+/=-]*)
+    echo "deskmate: the hub token in $token_file is empty or malformed. Run ./deskmate setup." >&2
+    exit 1
+    ;;
+esac
+printf '{"Authorization": "Bearer %s"}\n' "$token"

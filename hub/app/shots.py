@@ -99,7 +99,8 @@ async def capture(monitor: int = 1, region: list[float] | None = None) -> tuple[
     if monitor == 0 and img.width > 1600:
         img = img.resize((1600, int(img.height * 1600 / img.width)), Image.LANCZOS)
         count, w, _h = config.monitors()
-        caption = f"all {count} monitors side by side, scaled to 1600 px wide (each monitor is {w} px); use monitor=1 or 2 for coordinates"
+        pick = "monitor=1 or 2" if count == 2 else f"monitor=1 to {count}"
+        caption = f"all {count} monitors side by side, scaled to 1600 px wide (each monitor is {w} px); use {pick} for coordinates"
     else:
         if not monitor:
             caption = ""

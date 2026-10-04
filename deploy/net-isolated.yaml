@@ -1,0 +1,28 @@
+# Network mode "isolated": the desk's browser reaches the internet only, on any platform. For browsing
+# sites you do not trust, or when the desk must not touch anything on this machine.
+#
+# Both containers sit on a private network of their own, and the desk gets no host.docker.internal.
+# Docker Desktop still resolves that name, and on Linux this machine answers at the network's gateway,
+# so the desk's entrypoint also tells Chromium to refuse the names Docker gives this machine, their
+# addresses, its gateway and private address ranges (10.*, 172.16-31.*, 192.168.*, link-local, ...).
+# Best effort, and for the browser only: a program started in the desk's terminal is not filtered.
+# A dev server on localhost does not open here, and neither does a page whose code calls an API on
+# localhost or 127.0.0.1: inside the desk those are the desk itself.
+#
+# The hub is as in host-access mode: 127.0.0.1:$HUB_PORT published, DevTools over the private network.
+services:
+  desk:
+    networks: [desk]
+    environment:
+      DESK_NETWORK: isolated
+  hub:
+    networks: [desk]
+    ports:
+      - "127.0.0.1:${HUB_PORT:-7800}:${HUB_PORT:-7800}"
+    environment:
+      DESK_NETWORK: isolated
+      HUB_BIND: 0.0.0.0  # inside the hub's own network namespace; see the ports line for what is published
+      CDP_URL: http://desk:7812
+
+networks:
+  desk: {}

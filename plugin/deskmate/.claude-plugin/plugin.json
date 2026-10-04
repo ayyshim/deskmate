@@ -1,0 +1,10 @@
+{
+  "name": "deskmate",
+  "version": "0.1.0",
+  "description": "Use the shared Deskmate desk for browser and screen work. Its hooks link each session to the desk's activity feed and tell the secretary when a turn or session ends.",
+  "author": {
+    "name": "Deskmate"
+  },
+  "license": "Apache-2.0",
+  "keywords": ["browser", "desk", "mcp", "hooks"]
+}

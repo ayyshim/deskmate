@@ -9,20 +9,56 @@ from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context, FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from . import config, desk, journal, knock, sessions, shots
+from . import auth, config, desk, journal, knock, notify, sessions, shots
 from .browser import BrowserError, browser
 from .lease import Busy, lease
 
-INSTRUCTIONS = f"""Deskmate is one shared Linux desk (two 1280x800 monitors, Chromium, xterm) that every Claude Code \
-session on this machine uses and that {config.OWNER} watches live. Use it for every browser need instead of Playwright, \
-Puppeteer or a local browser. browser_open gives you your own tab; read pages with browser_snapshot (an outline with refs \
-such as e12, far cheaper than a screenshot) and act with browser_act. Use desk_screenshot and desk_input only for what is \
-not a web page; desk_input shares one mouse and keyboard and may answer busy. Pass why on every call: one line \
-{config.OWNER} reads. For a login, one-time code, CAPTCHA or payment, call desk_ask_human instead of guessing. The desk's \
-localhost is this machine's localhost, so dev servers work. Files cross through ~/.local/share/deskmate/exchange with desk_files."""
+OWNER = config.OWNER
+EXCHANGE = config.tilde(config.EXCHANGE_HOST_DIR)  # where the user finds the exchange folder on this machine
+
+
+def _layout() -> str:
+    count, (w, h) = config.DESK_MONITORS, config.DESK_MONITOR_SIZE
+    return f"one {w}x{h} monitor" if count == 1 else f"{count} monitors of {w}x{h}"
+
+
+def _monitor_choice(all_of_them: bool) -> str:
+    count = config.DESK_MONITORS
+    if count == 1:
+        return "1 (the desk has one monitor)"
+    choice = "1 or 2" if count == 2 else f"1 to {count}"
+    return choice + ("; 0 for all of them side by side (scaled)" if all_of_them else "")
+
+
+def network_text() -> str:
+    """What the desk's browser can reach, which depends on the network mode setup chose."""
+    if config.NETWORK == "isolated":
+        return (
+            "The desk's browser reaches the internet only, not this machine: a dev server on localhost does not open "
+            "there, and neither does a page whose code calls an API on localhost or 127.0.0.1."
+        )
+    if config.NETWORK == "host-access":
+        return (
+            "In the desk's browser localhost, *.localhost, 127.0.0.1 and [::1] lead to this machine, so dev servers work, "
+            "also when a page calls them from its code; a server that listens only on ::1 may not answer: start it on 127.0.0.1."
+        )
+    return "The desk's localhost is this machine's localhost, so dev servers work."
+
+
+INSTRUCTIONS = (
+    f"Deskmate is one shared Linux desk ({_layout()}, Chromium, a terminal) that every Claude Code session on this "
+    f"machine uses and that {OWNER} watches live. Use it for every browser need instead of Playwright, Puppeteer or a "
+    "local browser. browser_open gives you your own tab; read pages with browser_snapshot (an outline with refs such as "
+    "e12, far cheaper than a screenshot) and act with browser_act. Use desk_screenshot and desk_input only for what is "
+    "not a web page; desk_input shares one mouse and keyboard and may answer busy. Pass why on every call: one line "
+    f"{OWNER} reads. For a login, one-time code, CAPTCHA or payment, call desk_ask_human instead of guessing. "
+    f"{network_text()} Files cross through {EXCHANGE} with desk_files."
+    + (f" notify sends {OWNER} a short message, for a milestone or a long job finished." if notify.kind() != "none" else "")
+)
 
 mcp = FastMCP(
     "deskmate",
@@ -31,6 +67,13 @@ mcp = FastMCP(
     port=config.PORT,
     streamable_http_path="/mcp",
     session_idle_timeout=None,
+    # DNS-rebinding protection with the hub's own addresses. FastMCP turns it on by itself only when its host is
+    # a loopback address; spelled out, it also holds in the bridge modes, where the hub listens on 0.0.0.0.
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=sorted(auth.ALLOWED_HOSTS),
+        allowed_origins=sorted(auth.ALLOWED_ORIGINS),
+    ),
 )
 
 Why = Annotated[str, Field(description="One line: why you are doing this. Shown to the human watching the desk.")]
@@ -99,6 +142,17 @@ async def browser_snapshot(
     return out
 
 
+TYPED = ("fill", "type", "press", "select")
+
+
+def act_text(action: str, ref: str | None, value: str | None) -> str:
+    """A browser_act call as the journal shows it: typed text appears as its length, never itself."""
+    parts = [action, ref or ""]
+    if value and action in TYPED:
+        parts.append(journal.mask(value))
+    return " ".join(p for p in parts if p)
+
+
 @mcp.tool(annotations=ACT, structured_output=False)
 async def browser_act(
     action: Literal["click", "dblclick", "rightclick", "hover", "fill", "type", "press", "select", "check", "uncheck", "focus", "scroll", "back", "reload"],
@@ -109,7 +163,7 @@ async def browser_act(
 ) -> str:
     """Act on an element of your current tab. Returns what changed on the page."""
     sid = _begin(ctx, "browser_act", {"action": action, "ref": ref, "value": value, "why": why}, why)
-    shown = f"{action} {ref or ''} {('“' + value + '”') if value and action in ('fill', 'type', 'press', 'select') else ''}".strip()
+    shown = act_text(action, ref, value)
     try:
         _refuse_if_blocked()
         out = await browser.act(sid, action, ref, value)
@@ -162,7 +216,7 @@ async def browser_tabs(
 
 @mcp.tool(annotations=READ, structured_output=False)
 async def desk_screenshot(
-    monitor: Annotated[int, Field(description="1 or 2; 0 for both side by side (scaled)")] = 1,
+    monitor: Annotated[int, Field(description=_monitor_choice(all_of_them=True))] = 1,
     region: Annotated[list[float] | None, Field(description="[x1, y1, x2, y2] on that monitor to zoom in, with a ruler grid")] = None,
     why: Why = "",
     ctx: Context = None,
@@ -205,13 +259,15 @@ def _step(monitor: int, step: dict) -> tuple[str, dict, str]:
         }, f"scroll {step.get('direction', 'down')} at {step['scroll']}"
     if "type" in step:
         text = str(step["type"])
-        return "type_text", {"text": text}, f"type “{text[:40]}{'…' if len(text) > 40 else ''}”"
+        return "type_text", {"text": text}, f"type ({journal.chars(text)})"  # the length only, never the text
     if "key" in step:
         keys = step["key"] if isinstance(step["key"], list) else [step["key"]]
         return "type_keys", {"keys": [str(k) for k in keys]}, f"key {'+'.join(map(str, keys)) if len(keys) == 1 else ' '.join(map(str, keys))}"
     if "wait" in step:
         return "wait", {"duration": min(10_000, int(step["wait"]))}, f"wait {step['wait']} ms"
-    raise ValueError(f"unknown step {step}: use click, move, drag, scroll, type, key or wait")
+    # Name the keys, not the values: a misspelt {"typ": ...} step may hold a password.
+    keys = ", ".join(sorted(map(str, step))) if isinstance(step, dict) else type(step).__name__
+    raise ValueError(f"unknown step ({keys}): use click, move, drag, scroll, type, key or wait")
 
 
 @mcp.tool(annotations=ACT, structured_output=False)
@@ -224,7 +280,7 @@ async def desk_input(
             '{"key":"ctrl+l"} or {"key":["Tab","Return"]}, {"wait":500}'
         ),
     ],
-    monitor: Annotated[int, Field(description="1 or 2")] = 1,
+    monitor: Annotated[int, Field(description=_monitor_choice(all_of_them=False))] = 1,
     screenshot: Annotated[bool, Field(description="Return a picture of the monitor afterwards")] = True,
     why: Why = "",
     ctx: Context = None,
@@ -261,10 +317,17 @@ def _safe_name(name: str) -> str:
     return base
 
 
+def _exchange_path(fname: str) -> str:
+    """Where a file in the exchange folder is on this machine, absolute so a session can read it."""
+    if config.DATA_DIR_HOST:
+        return f"{config.EXCHANGE_HOST_DIR}/{fname}"
+    return f"{fname} in the exchange folder"
+
+
 @mcp.tool(annotations=ACT, structured_output=False)
 async def desk_files(
     op: Literal["put", "get", "list"],
-    name: Annotated[str | None, Field(description="File name. put: the file must be in ~/.local/share/deskmate/exchange on this machine")] = None,
+    name: Annotated[str | None, Field(description=f"File name. put: the file must be in {EXCHANGE} on this machine")] = None,
     why: Why = "",
     ctx: Context = None,
 ) -> str:
@@ -283,7 +346,7 @@ async def desk_files(
         if op == "put":
             src = config.EXCHANGE_DIR / fname
             if not src.is_file():
-                raise ValueError(f"{config.EXCHANGE_HOST_DIR}/{fname} does not exist. Copy the file there first.")
+                raise ValueError(f"{_exchange_path(fname)} does not exist. Copy the file there first.")
             data = src.read_bytes()
             if len(data) > 50 * 1024 * 1024:
                 raise ValueError("files over 50 MB are not sent")
@@ -295,26 +358,33 @@ async def desk_files(
         config.EXCHANGE_DIR.mkdir(parents=True, exist_ok=True)
         (config.EXCHANGE_DIR / fname).write_bytes(raw)
         journal.activity(sid, "desk_files", f"get {fname}", why, note=f"{len(raw)} bytes")
-        return f"Saved to {config.EXCHANGE_HOST_DIR}/{fname} ({len(raw)} bytes)"
+        return f"Saved to {_exchange_path(fname)} ({len(raw)} bytes)"
     except (ValueError, desk.DeskError, OSError) as exc:
         raise _fail(sid, "desk_files", f"{op} {name or ''}", why, exc)
 
 
 @mcp.tool(annotations=READ, structured_output=False)
 async def desk_status(ctx: Context = None) -> str:
-    """Who holds the mouse and keyboard, which tabs belong to which session, and whether a knock is waiting."""
+    """Who watches the desk and where, who holds the mouse and keyboard, which tabs belong to which session,
+    whether a knock is waiting, and whether notifications are on."""
     sid = _begin(ctx, "desk_status", {}, "")
     st = lease.state()
     if st["human"]:
-        holder = f"{config.OWNER} has the desk"
+        holder = f"{OWNER} has the desk"
     elif st["paused"]:
-        holder = f"{config.OWNER} paused the agents"
+        holder = f"{OWNER} paused the agents"
     elif st["holder"]:
         holder = f"input held by {sessions.label(st['holder'])} for {int(time.time() - st['since'])} s"
     else:
         holder = "input free"
     count, w, h = config.monitors()
-    lines = [f"{holder}. {count} monitors of {w}x{h}. You are {sessions.label(sid)}."]
+    kind = notify.kind()
+    lines = [
+        f"{OWNER} watches this desk live at {config.HUB_URL}.",
+        f"{holder[0].upper() + holder[1:]}. {count} monitor{'' if count == 1 else 's'} of {w}x{h}. You are {sessions.label(sid)}.",
+        network_text(),
+        f"Notifications: on, through {notify.NAMES[kind]} (the notify tool)." if kind != "none" else "Notifications: off.",
+    ]
     tabs = await browser.all_tabs()
     for s in sessions.active():
         mine = [t for t in tabs if t["owner"] == s["id"]]
@@ -329,20 +399,72 @@ async def desk_status(ctx: Context = None) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool(annotations=ACT, structured_output=False)
+@mcp.tool(
+    annotations=ACT,
+    structured_output=False,
+    description=(
+        f"Knock on the glass: a banner on the live view, and a notification if {OWNER} has them set up; then wait for "
+        f"{OWNER}'s reply or Resume. Use for logins, one-time codes, CAPTCHAs, payments, or a decision only they can make."
+    ),
+)
 async def desk_ask_human(
-    question: Annotated[str, Field(description=f"What you need from {config.OWNER}, e.g. 'Enter the OTP sent to your phone, then press Resume'")],
+    question: Annotated[str, Field(description=f"What you need from {OWNER}, e.g. 'Enter the one-time code sent to your phone, then press Resume'")],
     wait_minutes: Annotated[int, Field(description="How long to wait, 1–30")] = 15,
     why: Why = "",
     ctx: Context = None,
 ) -> str:
-    """Knock on the glass: a banner on the live view and a Discord message, then wait for the human's reply or Resume.
-    Use for logins, one-time codes, CAPTCHAs, payments, or a decision only they can make."""
     sid = _begin(ctx, "desk_ask_human", {"question": question, "wait_minutes": wait_minutes, "why": why}, why)
-    journal.activity(sid, "desk_ask_human", "", why or question[:120], "knock", "Posted to Discord")
-    answer = await knock.ask(sid, sessions.label(sid), question, max(1, min(30, wait_minutes)) * 60)
+    minutes = max(1, min(30, wait_minutes))
+    k = await knock.post(sid, sessions.label(sid), question)
+    journal.activity(sid, "desk_ask_human", "", why or question[:120], "knock", f"On the live view; {k.notified}")
+    answer = await knock.wait(k, minutes * 60)
     if answer is None:
-        journal.activity(sid, "desk_ask_human", "", "No answer", "error", f"Waited {wait_minutes} min")
-        return f"No answer within {wait_minutes} minutes. Carry on without it, or ask again later."
-    journal.activity(sid, "desk_ask_human", "", "Answered", "ok", answer[:200])
-    return f"{config.OWNER} answered: {answer}" if answer else f"{config.OWNER} pressed Resume without a reply."
+        journal.activity(sid, "desk_ask_human", "", "No answer", "error", f"Waited {minutes} min")
+        return f"No answer within {minutes} minutes. Carry on without it, or ask again later."
+    # The reply may be a one-time code: the journal keeps its length only.
+    journal.activity(sid, "desk_ask_human", "", "Answered", "ok", f"Reply of {journal.chars(answer)}" if answer else "Resume without a reply")
+    return f"{OWNER} answered: {answer}" if answer else f"{OWNER} pressed Resume without a reply."
+
+
+@mcp.tool(
+    name="notify",
+    annotations=ACT,
+    structured_output=False,
+    description=(
+        f"Send {OWNER} a short notification: a milestone reached, a long job finished, something they should see soon. "
+        "It goes to the channel set up in Deskmate, with your session's name in front. Not for questions: desk_ask_human "
+        f"waits for an answer. At most one message per {int(notify.SESSION_GAP // 60)} minutes per session and "
+        f"{notify.DAILY_MAX} a day in all. Says whether it was sent and never fails; if notifications are off, tell "
+        f"{OWNER} in your reply instead."
+    ),
+)
+async def send_notification(
+    text: Annotated[str, Field(description="The message: one to three short lines of plain text")],
+    images: Annotated[
+        list[str] | None,
+        Field(description=f"Optional: up to {notify.MAX_IMAGES} images (png, jpg, gif, webp) by file name, put in {EXCHANGE} first"),
+    ] = None,
+    why: Why = "",
+    ctx: Context = None,
+) -> str:
+    sid = _begin(ctx, "notify", {"text": text, "images": images, "why": why}, why)
+    lines = (text or "").strip().splitlines()
+    shown = lines[0][:120] if lines else ""
+    try:
+        if not shown:
+            return "Not sent: the text is empty."
+        if notify.kind() == "none":
+            journal.activity(sid, "notify", shown, why, "refused", "notifications are off")
+            return f"Not sent: notifications are off. Tell {OWNER} in your reply instead."
+        reason = notify.limit(sid)
+        if reason:
+            journal.activity(sid, "notify", shown, why, "refused", reason)
+            return f"Not sent: {reason}."
+        files, skipped = notify.load_images(images, config.EXCHANGE_DIR)
+        notify.count(sid)
+        result = await notify.send(text, title=f"Deskmate · {sessions.label(sid)}", images=files)
+        detail = "; ".join([result["detail"], *skipped])
+        journal.activity(sid, "notify", shown, why, "ok" if result["ok"] else "error", detail)
+        return (detail[0].upper() + detail[1:] if result["ok"] else f"Not sent: {detail}") + "."
+    except Exception as exc:  # this tool reports; it never fails the session's turn
+        return f"Not sent: {exc.__class__.__name__}."

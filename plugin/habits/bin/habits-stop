@@ -1,0 +1,495 @@
+#!/usr/bin/env python3
+"""Deskmate habits: the end-of-turn changelog check (a Claude Code Stop hook, Python 3.9 stdlib).
+
+It reads the Stop hook JSON on stdin and the turn that just ended from the session transcript, and
+keeps a small ledger per session: the repos under a picked folder ("root") that changed since their
+changelog entry for today was last written. Then, by mode:
+
+  remind   once per change, when the session moves on from the repo or commits in it, it asks the
+           session to write the entry (hookSpecificOutput.additionalContext; the session continues)
+  require  a turn that changed a repo may not end until that repo's entry for today is written
+           after the change ({"decision": "block"}), at most max_blocks times per turn
+  off      does nothing
+
+It never holds a session hostage: a missing config, an unreadable transcript or any error exits 0
+with no output.
+
+Config: $DESKMATE_HABITS_CONFIG, else ${XDG_CONFIG_HOME:-~/.config}/deskmate/habits.json
+State:  $DESKMATE_HABITS_STATE,  else ${XDG_STATE_HOME:-~/.local/state}/deskmate/habits/<session_id>.json
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import re
+import shlex
+import sys
+import time
+from pathlib import Path
+
+
+def _xdg(name: str, default: str) -> Path:
+    value = os.environ.get(name, "")
+    return Path(value) if os.path.isabs(value) else Path.home() / default
+
+
+CONFIG = Path(os.environ.get("DESKMATE_HABITS_CONFIG") or _xdg("XDG_CONFIG_HOME", ".config") / "deskmate/habits.json")
+STATE = Path(os.environ.get("DESKMATE_HABITS_STATE") or _xdg("XDG_STATE_HOME", ".local/state") / "deskmate/habits")
+DEBUG = os.environ.get("DESKMATE_HABITS_DEBUG")  # a file to append decisions to, for tests
+STATE_DAYS = 30  # state files of sessions idle this long are deleted
+
+EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
+TAIL_LIMIT = 32 * 1024 * 1024  # never read more than this from the end of a transcript
+WAIVER = re.compile(r"\b(no|skip|without)\s+(a\s+)?change\s?log\b", re.I)
+FEEDBACK_PREFIX = "Stop hook feedback"
+
+# Bash: git verbs that record or bring in a change, and commands whose path arguments they change.
+GIT_VERB = re.compile(r"^(commit|merge|cherry-pick|revert|am|apply|mv|rm|stash\s+(pop|apply))\b")
+ALL_ARGS = {"tee", "mv", "rm", "touch", "mkdir", "truncate"}  # every path argument is changed
+LAST_ARG = {"cp", "ln", "install", "rsync"}  # only the destination is changed
+HERE = {"patch", "unzip"}  # changes files in the current directory
+PREFIXES = {"sudo", "env", "command", "nohup", "time", "exec"}  # words before the real command
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", re.S)
+QUOTED = re.compile("'[^']*'|\"(?:[^\"\\\\]|\\\\.)*\"")  # quoted strings, so "a -> b" is no redirect
+REDIRECT = re.compile(r"(?<![0-9&<>])>{1,2}\|?\s*([^\s;&|<>()]+)")
+
+
+# ---------------------------------------------------------------- config and paths
+
+
+def real(p: str | Path) -> Path:
+    """A path with symlinks in its folder resolved (so /tmp and /private/tmp on macOS agree), but
+    not in its last part: a symlinked file counts where the session saw it."""
+    p = os.path.normpath(os.path.expanduser(str(p)))
+    head, tail = os.path.split(p)
+    return Path(os.path.join(os.path.realpath(head), tail)) if tail else Path(os.path.realpath(p))
+
+
+class Root:
+    def __init__(self, raw: dict):
+        self.path = Path(os.path.realpath(os.path.expanduser(raw["path"])))
+        self.hub = Path(os.path.realpath(os.path.expanduser(raw["hub"])))
+        self.changelog_dir = raw.get("changelog_dir") or "changelog"
+        self.skip = set(raw.get("skip_repos") or [])
+        self.names = dict(raw.get("repo_names") or {})
+        tree = raw.get("work_tree")  # the root is inside this git work tree (a folder in one repo)
+        self.work_tree = Path(os.path.realpath(os.path.expanduser(tree))) if tree else None
+
+    def holds(self, p: Path) -> bool:
+        return p == self.path or self.path in p.parents
+
+    def changelog(self, repo: str, day: dt.date) -> Path:
+        return self.hub / self.changelog_dir / repo / f"{day.isoformat()}.md"
+
+
+def load_config() -> dict | None:
+    try:
+        cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(cfg, dict):
+        return None
+    roots = []
+    for r in cfg.get("roots") or []:
+        if isinstance(r, dict) and r.get("path") and r.get("hub"):
+            roots.append(Root(r))
+    cfg["roots"] = roots
+    return cfg if roots else None
+
+
+def under(p: Path, parent: Path) -> bool:
+    return p == parent or parent in p.parents
+
+
+def resolve(raw: str, base: str) -> Path | None:
+    raw = raw.strip("'\"")
+    if not raw or raw.startswith("-") or "$" in raw or "*" in raw or raw.startswith("/dev/"):
+        return None
+    p = os.path.expanduser(raw)
+    if not os.path.isabs(p):
+        p = os.path.join(base, p)
+    return real(p)
+
+
+def repo_of(p: Path, root: Root) -> Path | None:
+    """The git work tree that holds p, looking no higher than the root (which may itself be a repo).
+    A root inside a bigger work tree uses that work tree."""
+    d = p if p.is_dir() else p.parent
+    while root.holds(d):
+        if (d / ".git").exists():
+            return d
+        if d == root.path:
+            break
+        d = d.parent
+    return root.work_tree
+
+
+def repo_name(repo: Path, root: Root) -> str:
+    """Folder name of the main checkout, so a linked worktree logs under its repo's name."""
+    name = repo.name
+    git = repo / ".git"
+    if git.is_file():
+        m = re.match(r"gitdir:\s*(.+)", git.read_text(errors="replace"))
+        if m:
+            gd = Path(m.group(1).strip())
+            gd = gd if gd.is_absolute() else (repo / gd).resolve()
+            parts = gd.parts
+            if "worktrees" in parts:
+                main = Path(*parts[: len(parts) - 1 - parts[::-1].index("worktrees")])
+                if main.name == ".git":
+                    name = main.parent.name
+    return root.names.get(name, name)
+
+
+def skipped(p: Path, root: Root, repo: Path) -> bool:
+    config_dir = real(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    return (
+        under(p, root.hub)  # docs-only edits in the hub itself
+        or under(p, config_dir)
+        or ".git" in p.parts
+        or repo.name.startswith(".")
+        or repo.name in root.skip
+    )
+
+
+# ---------------------------------------------------------------- the transcript
+
+
+def tail_lines(path: str, limit: int = TAIL_LIMIT, block: int = 1 << 16):
+    """Lines of a file from the last to the first, reading at most `limit` bytes from the end."""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        pos = f.tell()
+        stop = max(0, pos - limit)
+        buf = b""
+        while pos > stop:
+            step = min(block, pos - stop)
+            pos -= step
+            f.seek(pos)
+            buf = f.read(step) + buf
+            lines = buf.split(b"\n")
+            buf = lines.pop(0)
+            for line in reversed(lines):
+                if line.strip():
+                    yield line
+        if pos == 0 and buf.strip():
+            yield buf
+
+
+def blocks(e: dict) -> list:
+    c = (e.get("message") or {}).get("content")
+    if isinstance(c, str):
+        return [{"type": "text", "text": c}]
+    return [b for b in c if isinstance(b, dict)] if isinstance(c, list) else []
+
+
+def text_of(e: dict) -> str:
+    return "\n".join(b.get("text", "") for b in blocks(e) if b.get("type") == "text")
+
+
+def is_prompt(e: dict) -> bool:
+    """A user entry that starts a turn: a human prompt, a task notification or a peer message.
+    Not a tool result, not injected meta text, not a compaction summary, not stop-hook feedback."""
+    if e.get("type") != "user" or e.get("isMeta") or e.get("isCompactSummary") or e.get("isVisibleInTranscriptOnly"):
+        return False
+    bs = blocks(e)
+    if not bs or any(b.get("type") == "tool_result" for b in bs):
+        return False
+    return not text_of(e).lstrip().startswith(FEEDBACK_PREFIX)
+
+
+def read_turn(path: str, last_text: str | None, wait: float = 2.0) -> list:
+    """Main-thread entries of the turn that just ended, oldest first. The transcript is written
+    asynchronously, so wait briefly until the final assistant text has reached the file."""
+    needle = (last_text or "").strip()[-120:]
+    deadline = time.monotonic() + wait
+    while True:
+        entries = []
+        for raw in tail_lines(path):
+            try:
+                e = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(e, dict) or e.get("isSidechain"):
+                continue  # subagent work lives in its own file; it is not this turn's
+            entries.append(e)
+            if is_prompt(e):
+                break
+        entries.reverse()
+        said = "\n".join(text_of(e) for e in entries if e.get("type") == "assistant")
+        if not needle or needle in said or time.monotonic() > deadline:
+            return entries
+        time.sleep(0.1)
+
+
+def stamp(e: dict) -> float | None:
+    try:
+        return dt.datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).timestamp()
+    except (KeyError, ValueError, AttributeError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------- what the turn changed
+
+
+def bash_paths(command: str, cwd: str) -> tuple:
+    """(files a command changed, dirs where a git command recorded a change). A heuristic: it
+    reads `cd`, `git -C`, in-place edits, redirects and file commands. A script that writes
+    files (python3 - <<EOF) is not seen."""
+    files, gits = [], []
+    text = HEREDOC.sub(lambda m: m.group(0).split("\n", 1)[0], command)
+    here = cwd
+    for seg in re.split(r"&&|\|\||;|\n|\|", text):
+        for target in REDIRECT.findall(QUOTED.sub("''", seg)):
+            p = resolve(target, here)
+            if p:
+                files.append(p)
+        try:
+            words = shlex.split(seg, comments=True)
+        except ValueError:
+            words = seg.split()
+        while words and (re.match(r"^\w+=", words[0]) or words[0] in PREFIXES):
+            words = words[1:]  # FOO=bar cmd, sudo cmd, env cmd
+        if not words:
+            continue
+        cmd, args = os.path.basename(words[0]), words[1:]
+        if cmd == "cd" and args:
+            p = resolve(args[0], here)
+            here = str(p) if p else here
+        elif cmd == "git":
+            d, rest = here, list(args)
+            while rest and rest[0].startswith("-"):
+                opt = rest.pop(0)
+                if opt == "-C" and rest:
+                    p = resolve(rest.pop(0), d)
+                    d = str(p) if p else d
+                elif opt in ("-c", "--git-dir", "--work-tree") and rest:
+                    rest.pop(0)
+            if rest and GIT_VERB.match(" ".join(rest)):
+                gits.append(Path(d))
+        elif cmd in ("sed", "perl", "ruby") and any(re.match(r"^-[a-zA-Z]*i", a) for a in args):
+            for a in args:
+                p = None if a.startswith("-") else resolve(a, here)
+                if p and p.exists():
+                    files.append(p)
+        elif cmd in ALL_ARGS:
+            files += [p for p in (resolve(a, here) for a in args) if p]
+        elif cmd in LAST_ARG:
+            paths = [a for a in args if not a.startswith("-")]
+            p = resolve(paths[-1], here) if paths else None
+            if p:
+                files.append(p)
+        elif cmd in HERE:
+            files.append(real(here))
+    return files, gits
+
+
+def turn_changes(entries: list, session_cwd: str) -> tuple:
+    """(files changed, dirs where git recorded a change, files written by Edit/Write) from the tool
+    calls that did not fail. Edit-type paths are absolute; Bash paths resolve against the entry's cwd."""
+    failed = {
+        b.get("tool_use_id")
+        for e in entries
+        if e.get("type") == "user"
+        for b in blocks(e)
+        if b.get("type") == "tool_result" and b.get("is_error")
+    }
+    files, gits, written = [], [], set()
+    for e in entries:
+        if e.get("type") != "assistant":
+            continue
+        cwd = e.get("cwd") or session_cwd
+        for b in blocks(e):
+            if b.get("type") != "tool_use" or b.get("id") in failed:
+                continue
+            name, inp = b.get("name"), b.get("input") or {}
+            if not isinstance(inp, dict):
+                continue
+            if name in EDIT_TOOLS and isinstance(inp.get(EDIT_TOOLS[name]), str):
+                p = resolve(inp[EDIT_TOOLS[name]], cwd)
+                if p:
+                    files.append(p)
+                    written.add(p)
+            elif name == "Bash" and isinstance(inp.get("command"), str):
+                f, g = bash_paths(inp["command"], cwd)
+                files += f
+                gits += [real(x) for x in g]
+    return files, gits, written
+
+
+def analyse(cfg: dict, entries: list, cwd: str) -> dict:
+    """Repos this turn changed (with the files), repos where it committed, and what it wrote."""
+    files, gits, written = turn_changes(entries, cwd)
+    start = next((stamp(e) for e in entries if stamp(e)), time.time())
+    days = sorted({dt.datetime.fromtimestamp(start).date(), dt.date.today()})  # local time; a turn may cross midnight
+    changed = {}
+    committed = set()
+    for p, how in [(f, "file") for f in files] + [(g, "git") for g in gits]:
+        for root in cfg["roots"]:
+            if not root.holds(p):
+                continue
+            repo = repo_of(p, root)
+            if not repo or skipped(p, root, repo):
+                break
+            name = repo_name(repo, root)
+            if name in root.skip:
+                break
+            item = changed.setdefault(
+                name,
+                {
+                    "logs": [str(root.changelog(name, d)) for d in days],
+                    "log": str(root.changelog(name, days[-1])),
+                    "since": start,
+                    "files": [],
+                },
+            )
+            if how == "git":
+                committed.add(name)
+            elif p != repo and under(p, repo):
+                item["files"].append(str(p.relative_to(repo)))
+            break
+    return {"changed": changed, "committed": committed, "written": written, "start": start}
+
+
+def written_since(logs: list, written: set, since: float) -> bool:
+    """An entry counts as written when this turn's Edit/Write touched the file, or when the file
+    changed after the change began (a Bash heredoc, the skill, a subagent or another session wrote it)."""
+    for lg in map(Path, logs):
+        if lg in written:
+            return True
+        try:
+            if lg.stat().st_mtime >= since - 1:
+                return True
+        except OSError:
+            pass
+    return False
+
+
+# ---------------------------------------------------------------- decision
+
+
+def message(due: dict, mode: str, skill: str) -> str:
+    lines = [f"Deskmate habits: today's changelog entry is missing for {', '.join(due)}."]
+    for repo, d in due.items():
+        shown = sorted(set(d["files"]))
+        more = f", +{len(shown) - 3} more" if len(shown) > 3 else ""
+        what = f" (changed: {', '.join(shown[:3])}{more})" if shown else " (a git commit or merge)"
+        lines.append(f"- {repo}: {d['log']}{what}")
+    lines.append(
+        f"Write it now with the {skill} skill, in the format of the changelog folder's README.md. "
+        "Append to the file if it exists and never overwrite earlier entries. State the cross-repo impact."
+    )
+    if mode == "remind":
+        lines.append("If the change is still in progress, or the user does not want an entry, say so in one line and carry on.")
+    else:
+        lines.append("If the user does not want an entry for this change, they can say 'no changelog'.")
+    return "\n".join(lines)
+
+
+def log(**kw) -> None:
+    if DEBUG:
+        with open(DEBUG, "a") as f:
+            f.write(json.dumps(kw, default=str) + "\n")
+
+
+def prune(now: float) -> None:
+    """Delete the state of sessions idle for STATE_DAYS. Runs when a new session's state is made."""
+    try:
+        for f in STATE.glob("*.json"):
+            if now - f.stat().st_mtime > STATE_DAYS * 86400:
+                f.unlink()
+    except OSError:
+        pass
+
+
+def main() -> int:
+    try:
+        event = json.load(sys.stdin)
+    except ValueError:
+        return 0
+    if not isinstance(event, dict):
+        return 0
+    cfg = load_config()
+    mode = (cfg or {}).get("mode", "off")
+    log(event={k: v for k, v in event.items() if k != "last_assistant_message"}, mode=mode)
+    if mode not in ("remind", "require"):
+        return 0
+    if event.get("hook_event_name") != "Stop" or event.get("agent_id") or event.get("permission_mode") == "plan":
+        return 0
+    path, sid = event.get("transcript_path"), str(event.get("session_id", "unknown"))
+    if not path or not os.path.exists(path):
+        return 0
+    skill = str(cfg.get("skill") or "habits:changelog-entry")
+
+    entries = read_turn(path, event.get("last_assistant_message"))
+    prompt = next((e for e in entries if is_prompt(e)), None)
+    turn_id = (prompt or {}).get("uuid", "none")
+    state_file = STATE / f"{re.sub(r'[^A-Za-z0-9_-]', '_', sid)}.json"
+    try:
+        state = json.loads(state_file.read_text())
+    except (OSError, ValueError):
+        state = {}
+    fresh = not state
+    state.setdefault("debt", {})
+    # A stop that follows our own feedback continues the same turn, whatever the transcript shows.
+    continuing = bool(event.get("stop_hook_active")) and state.get("turn") is not None
+    if not continuing and state.get("turn") != turn_id:
+        state.update(turn=turn_id, blocks=0, touched=[], committed=[])
+
+    turn = analyse(cfg, entries, event.get("cwd") or os.getcwd())
+    state["touched"] = sorted(set(state.get("touched", [])) | set(turn["changed"]))
+    state["committed"] = sorted(set(state.get("committed", [])) | turn["committed"])
+    debt = state["debt"]
+    for repo, item in turn["changed"].items():
+        d = debt.setdefault(repo, dict(item, files=[], reminded=False))
+        d["files"] = sorted(set(d["files"]) | set(item["files"]))[:50]
+        d["logs"] = sorted(set(d["logs"]) | set(item["logs"]))
+        d["log"] = item["log"]
+    for repo in list(debt):
+        if written_since(debt[repo]["logs"], turn["written"], debt[repo]["since"]):
+            del debt[repo]  # paid
+    if prompt and not continuing and WAIVER.search(text_of(prompt)):
+        for repo in turn["changed"]:
+            debt.pop(repo, None)  # the user said no changelog for this turn's change
+    log(turn={"changed": sorted(turn["changed"]), "committed": sorted(turn["committed"])}, debt=debt)
+
+    out = None
+    if mode == "remind" and not event.get("stop_hook_active"):
+        # Once per change, when the session has moved on from the repo or has just committed in it.
+        due = {r: d for r, d in debt.items() if not d["reminded"] and (r not in state["touched"] or r in state["committed"])}
+        if due:
+            for d in due.values():
+                d["reminded"] = True
+            out = {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": message(due, mode, skill)}}
+    elif mode == "require":
+        due = {r: d for r, d in debt.items() if r in state["touched"]}
+        if due and state["blocks"] < int(cfg.get("max_blocks", 2)):
+            state["blocks"] += 1
+            out = {"decision": "block", "reason": message(due, mode, skill)}
+        elif due:
+            out = {"systemMessage": "Deskmate: still no changelog entry today for " + ", ".join(due) + "."}
+    try:
+        os.umask(0o077)
+        STATE.mkdir(parents=True, exist_ok=True)
+        if fresh:
+            prune(time.time())
+        state_file.write_text(json.dumps(state))
+    except OSError:
+        pass
+    log(decision=out)
+    if out:
+        print(json.dumps(out))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as exc:  # never fail closed
+        try:
+            log(error=repr(exc))
+        except Exception:
+            pass
+        sys.exit(0)

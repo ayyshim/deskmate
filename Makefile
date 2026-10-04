@@ -1,62 +1,45 @@
-# Deskmate. Run from this directory.
-SHELL := /bin/bash
-DATA := $(HOME)/.local/share/deskmate
-COMPOSE := docker compose
-ISOLATED := $(COMPOSE) -f compose.yaml -f compose.isolated.yaml
-
-.PHONY: help env up isolated down restart logs ps desk-shell
+# Deskmate. Thin aliases for ./deskmate, which does the work (run ./deskmate --help for everything).
+.PHONY: help setup doctor up down restart status logs open update uninstall connect disconnect test
 
 help:
-	@echo "make env       create .env with a fresh token (keeps an existing one)"
-	@echo "make up        build and start the desk and the hub"
-	@echo "make isolated  the same, but the desk cannot reach this machine's localhost"
-	@echo "make down      stop both"
-	@echo "make logs      follow the logs"
-	@echo "make open      open the web UI (prints a sign-in link)"
-	@echo "make install   connect Claude Code: MCP server, hooks, skill (make uninstall undoes it)"
+	@./deskmate --help
 
-# .env holds the hub token and the secretary's Claude login. Never commit it.
-env:
-	@if [ -f .env ]; then echo ".env exists, leaving it alone"; else \
-	  cp .env.example .env && chmod 600 .env && \
-	  sed -i "s|^DESKMATE_TOKEN=.*|DESKMATE_TOKEN=$$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')|" .env && \
-	  sed -i "s|^HOST_UID=.*|HOST_UID=$$(id -u)|; s|^HOST_GID=.*|HOST_GID=$$(id -g)|" .env && \
-	  echo "wrote .env (add CLAUDE_CODE_OAUTH_TOKEN from 'claude setup-token' for the secretary)"; fi
+setup:
+	./deskmate setup
 
-$(DATA)/hub $(DATA)/exchange:
-	mkdir -p $@
+doctor:
+	./deskmate doctor
 
-up: env | $(DATA)/hub $(DATA)/exchange
-	$(COMPOSE) up -d --build
-
-isolated: env | $(DATA)/hub $(DATA)/exchange
-	$(ISOLATED) up -d --build
+up:
+	./deskmate up
 
 down:
-	$(COMPOSE) down
+	./deskmate down
 
 restart:
-	$(COMPOSE) restart
+	./deskmate restart
+
+status:
+	./deskmate status
 
 logs:
-	$(COMPOSE) logs -f --tail=100
+	./deskmate logs
 
-ps:
-	$(COMPOSE) ps
-
-desk-shell:
-	docker exec -it -e DISPLAY=:87 -e XAUTHORITY=/tmp/.Xauthority deskmate-desk bash
-
-.PHONY: open install uninstall
-
-# Prints the one-time sign-in link for the web UI and opens it.
 open:
-	@TOKEN=$$(grep '^DESKMATE_TOKEN=' .env | cut -d= -f2-); \
-	  echo "http://127.0.0.1:7800/login?t=$$TOKEN"; \
-	  (xdg-open "http://127.0.0.1:7800/login?t=$$TOKEN" >/dev/null 2>&1 &) || true
+	./deskmate open
 
-install:
-	scripts/install.sh
+update:
+	./deskmate update
 
 uninstall:
-	scripts/uninstall.sh
+	./deskmate uninstall
+
+connect:
+	./deskmate connect
+
+disconnect:
+	./deskmate disconnect
+
+# The host tool's tests (Python standard library only).
+test:
+	cd setup/tests && python3 -m unittest discover -p 'test_*.py'

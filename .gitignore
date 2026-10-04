@@ -1,4 +1,7 @@
+# Written by ./deskmate setup: your settings (0600) and the folders the hub may read. Never commit them.
 .env
+.env.backup-*
+compose.local.yaml
 __pycache__/
 *.pyc
 .pytest_cache/

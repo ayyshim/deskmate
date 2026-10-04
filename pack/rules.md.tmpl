@@ -1,0 +1,60 @@
+<!-- deskmate:habits:begin v{version} · Managed by Deskmate since {date}. `./deskmate setup` rewrites the text between these markers and `./deskmate uninstall` removes it. Put your own text outside them. block={block_sha} -->
+# Working habits
+
+{?multi}
+This folder holds the repos below. Each is its own git repo.
+{/multi}
+{?single}
+This folder is a git repo. Its changes are logged under the name in the table below.
+{/single}
+
+{?hub}
+`{hub}/` is the docs hub: documentation, design docs and changelogs. Read `{hub}/README.md` first.
+{/hub}
+
+## Repos
+
+| Repo | Docs |
+|---|---|
+{repo_rows}
+
+## Rules for every session
+
+{?hub}
+- **Read the hub before you code.** For a task in a repo, open `{hub}/projects/<repo>/INDEX.md` if it exists, then the module docs it points to. Check `{hub}/knowledge-base/` for anything that crosses repos.
+- **Changelog at the end of every change.** When you finish a change in a repo, append an entry to `{hub}/{changelog_dir}/<repo>/YYYY-MM-DD.md` (today's date, local time) in the format of `{hub}/{changelog_dir}/README.md`. Create the file if it does not exist. Never overwrite earlier entries. This is not optional. It applies to fixes, refactors, tests and docs changes in the repo too. The `{skill_prefix}changelog-entry` skill does this.
+- **Design docs for non-trivial work.** Before you build a feature or module, start or extend `{hub}/design/<feature>/` from `{hub}/design/_template.md` and add it to the index in `{hub}/design/README.md`. Keep it current while you build: requirements, decisions, open questions. When it ships, mark the status and link the changelog entry. The `{skill_prefix}design-doc` skill does this.
+- **Keep the knowledge base current.** If you learn how something works and it is not in `{hub}/projects/` or `{hub}/knowledge-base/`, add it there in the same session.
+{/hub}
+- **No secrets in docs, memory or messages.** Refer to credential files by path only. Never copy tokens, keys, passwords or `.env` values into docs, changelogs, memory, commits or notifications.
+{?hub}
+- **Cross-repo impact is the default.** A change in one repo often has a consumer or a counterpart in another. Say what it is, or that there is none, in the changelog entry and the design doc.
+{/hub}
+{?nohub}
+- **Cross-repo impact is the default.** A change in one repo often has a consumer or a counterpart in another. Say what it is, or that there is none, in your summary and the commit message.
+{/nohub}
+- **Memory is {owner}'s; docs are the team's.** Use your auto memory for what only {owner} needs: how they want you to work, facts about this machine, and where unfinished work stands (what is done, what is next, what is not pushed). Update or delete a status memory when the work is done. Anything a teammate would need goes into the shared docs, not memory. Never save secrets in memory.
+- **Autonomy is personal.** Commit, push, merge or deploy only when {owner} asks. A standing permission belongs in {owner}'s memory, never in these rules.
+{?notify}
+- **Post milestones.** Use the `notify` tool of the deskmate MCP server (`mcp__deskmate__notify`) for what {owner} would want to hear while away: a milestone reached, work shipped (merged, deployed), a failure that needs them, or a question that blocks you. One or two plain lines: what happened, where, what is next. No secrets, file contents or transcript text. Not for routine turns. If the tool fails, say so and carry on.
+{/notify}
+- **Wrap up.** When a task is done, before a long pause, or when {owner} says "wrap up", use the `{skill_prefix}wrap-up` skill.
+{?check}
+- **End-of-turn check ({check_mode}).** If a repo you changed has no changelog entry for today, a "Deskmate habits" note asks for it. Write the entry, or say in one line why this change needs none.
+{/check}
+
+## Conventions
+
+- Reference code as `<repo>/<path>:<line>` in docs and changelogs.
+{?codegraph}
+- `codegraph` indexes each repo in `<repo>/.codegraph/`. Use it before broad grep to find symbols, callers and impact. Re-index after large changes with `codegraph init` inside the repo.
+{/codegraph}
+{?agents}
+
+## Agents
+
+Team subagents in `.claude/agents/` carry each repo's architecture and conventions. Use them for repo work:
+
+{agent_rows}
+{/agents}
+<!-- deskmate:habits:end -->

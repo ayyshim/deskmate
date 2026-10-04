@@ -4,21 +4,29 @@ Two things here exist because of what the desk taught us (design D11):
 
 * Playwright connects with `no_defaults=True`. Without it Playwright turns on focus emulation
   for every page, which Chromium implements by marking the tab as being captured, and a captured
-  tab keeps `requestFullscreen()` inside the tab. edm_react's customer display would never go
-  fullscreen on monitor 2.
+  tab keeps `requestFullscreen()` inside the tab. A point-of-sale app's customer display would
+  never go fullscreen on monitor 2.
 * Openbox ignores the position a page asks for in `window.open(url, name, "left=…,top=…")`, so
   every popup opened on monitor 1. The hub hears the request (`Page.windowOpen` carries the
   features) and moves the new window there with `Browser.setWindowBounds`.
+
+And one because of what Playwright does: its page outline shows the value of every text field,
+password fields included. A password typed by a session, or by the user in the live view, would
+reach the session's transcript; snapshots replace those values with dots (mask_passwords).
 """
 
 from __future__ import annotations
 
 import asyncio
 import difflib
+import ipaddress
+import json
 import logging
+import socket
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit, urlunsplit
 
 from playwright.async_api import Error as PwError
 from playwright.async_api import Page, async_playwright
@@ -82,6 +90,58 @@ def _cap(text: str, cap: int, hint: str) -> str:
     return text[:cap] + f"\n… cut at {cap} of {len(text)} characters. {hint}"
 
 
+async def cdp_endpoint(url: str) -> str:
+    """The DevTools URL with its host as an IP address.
+
+    Chromium's DevTools answers 500 to a Host header that is neither an IP address nor localhost,
+    so in the bridge modes the desk's service name (http://desk:7812) is resolved here first. It is
+    resolved again on every connect: a recreated desk gets a new address."""
+    u = urlsplit(url)
+    host = u.hostname or "127.0.0.1"
+    if host == "localhost":
+        return url
+    try:
+        ipaddress.ip_address(host)
+        return url
+    except ValueError:
+        pass
+    infos = await asyncio.get_running_loop().getaddrinfo(host, u.port, family=socket.AF_INET, type=socket.SOCK_STREAM)
+    ip = infos[0][4][0]
+    return urlunsplit(u._replace(netloc=f"{ip}:{u.port}" if u.port else ip))
+
+
+# Values of the page's password fields, shadow roots included; each frame is asked separately.
+_PASSWORD_VALUES_JS = """() => {
+  const out = [];
+  const visit = (root) => {
+    for (const el of root.querySelectorAll('*')) {
+      if (el instanceof HTMLInputElement && el.type === 'password' && el.value) out.push(el.value);
+      if (el.shadowRoot) visit(el.shadowRoot);
+    }
+  };
+  visit(document);
+  return out;
+}"""
+MASKED = "••••••"
+
+
+def mask_passwords(snap: str, values: list[str]) -> str:
+    """Replace those values where the outline shows a text field's value: `- textbox "Password" [ref=e5]: value`.
+    The outline quotes a value with odd characters, so the quoted form is checked too."""
+    if not values:
+        return snap
+    forms = sorted({f for v in values for f in (v, json.dumps(v))}, key=len, reverse=True)
+    out = []
+    for line in snap.split("\n"):
+        if "textbox" in line:
+            for form in forms:
+                if line.endswith(": " + form):
+                    line = line[: len(line) - len(form)] + MASKED
+                    break
+        out.append(line)
+    return "\n".join(out)
+
+
 class DeskBrowser:
     def __init__(self) -> None:
         self._pw = None
@@ -107,7 +167,7 @@ class DeskBrowser:
             for _ in range(20):
                 try:
                     self._browser = await self._pw.chromium.connect_over_cdp(
-                        config.CDP_URL, no_defaults=True, timeout=5000
+                        await cdp_endpoint(config.CDP_URL), no_defaults=True, timeout=5000
                     )
                     break
                 except Exception as exc:  # the browser is restarting
@@ -235,11 +295,22 @@ class DeskBrowser:
         snap = await self._snapshot(page)
         return f"{await page.title()}\n{page.url}\n\n{_cap(snap, SNAPSHOT_CAP, 'Call browser_snapshot for the rest, or browser_read for the text.')}"
 
+    async def _password_values(self, page: Page) -> list[str]:
+        async def one(frame) -> list:
+            try:
+                return await asyncio.wait_for(frame.evaluate(_PASSWORD_VALUES_JS), 2)
+            except Exception:  # a frame that is navigating or gone has no fields to hide
+                return []
+
+        found = await asyncio.gather(*(one(f) for f in page.frames))
+        return [v for values in found for v in values or [] if isinstance(v, str)]
+
     async def _snapshot(self, page: Page) -> str:
         try:
             snap = await page.aria_snapshot(mode="ai", timeout=10_000)
         except PwError as exc:
             raise BrowserError(f"Could not read the page: {str(exc).splitlines()[0]}")
+        snap = mask_passwords(snap, await self._password_values(page))
         self._pages.setdefault(page, PageState(owner=None)).last_snapshot = snap
         return snap
 

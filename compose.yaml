@@ -1,67 +1,104 @@
-# Deskmate: one shared desk for Claude Code sessions, and a secretary for the claude/ hub.
+# Deskmate: one shared desk (a small Linux computer with Chromium) for every Claude Code session on
+# this machine, and a hub with the live view, the MCP server and the secretary.
 #
-#   make up        build and start both containers (host networking, every listener on 127.0.0.1)
-#   make isolated  the same, but the desk's browser cannot reach this machine's localhost
+# This file is the same everywhere: no host paths, no network mode, no ports. `./deskmate setup` writes
+#   .env                 settings, never secrets; its COMPOSE_FILE adds the two files below, so plain
+#                        `docker compose up -d` (or `./deskmate up`) works from this folder
+#   deploy/net-*.yaml    the network mode: host (Linux), host-access (Docker Desktop) or isolated
+#   compose.local.yaml   the folders the secretary may read, mounted read-only at their own paths
+# and the secret files in $DESKMATE_DATA_DIR/secrets, which compose mounts under /run/secrets.
 #
-# desk  the computer: Xvfb, Openbox, Chromium (CDP 127.0.0.1:7802), xterm, x11vnc, deskd.
-#       deskd and VNC listen on unix sockets in the `deskrun` volume, which only the hub mounts.
-# hub   MCP server, web UI and live view on 127.0.0.1:7800, and the secretary.
+# desk  the computer: Xvnc, Openbox, Chromium (DevTools on the desk's 127.0.0.1), xterm, deskd.
+#       deskd and VNC listen on unix sockets in the `deskrun` volume, which only the hub shares.
+# hub   MCP server, web UI and live view on 127.0.0.1:$HUB_PORT, and the secretary.
 #
-# Host networking is decision D2 in claude/design/deskmate/00-overview.md: without it the desk's
-# browser cannot open dev servers bound to localhost (sageweb, edm_react, Fleet).
+# Images and containers are named after the compose project, so a second stack on the same Docker
+# (another user, or a test with `-p`) never replaces this one's.
 name: deskmate
 
 services:
   desk:
     build: ./desk
-    image: localhost/deskmate-desk:latest
-    container_name: deskmate-desk
+    image: localhost/${COMPOSE_PROJECT_NAME:-deskmate}-desk:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-deskmate}-desk
     hostname: desk
-    network_mode: host
     restart: unless-stopped
     shm_size: "1g"
     environment:
-      MONITORS: "2"
-      MONITOR_SIZE: 1280x800
-      DISPLAY_NUM: "87"
-      CDP_PORT: "7802"
+      TZ: ${TZ:-UTC}
+      DESK_MONITORS: ${DESK_MONITORS:-2}
+      DESK_MONITOR_SIZE: ${DESK_MONITOR_SIZE:-1280x800}
+      DESK_DISPLAY: ${DESK_DISPLAY:-87}
+      CDP_PORT: ${CDP_PORT:-7802}
     volumes:
       - desk-home:/home/bot
+      # deskd.sock and vnc.sock: a named volume, never a bind mount (Docker Desktop breaks sockets on those)
       - deskrun:/run/desk
 
   hub:
     build: ./hub
-    image: localhost/deskmate-hub:latest
-    container_name: deskmate-hub
-    network_mode: host
+    image: localhost/${COMPOSE_PROJECT_NAME:-deskmate}-hub:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-deskmate}-hub
     restart: unless-stopped
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # The user who ran setup, so everything the hub writes belongs to them.
+    user: "${HOST_UID:?run ./deskmate setup first}:${HOST_GID:?run ./deskmate setup first}"
+    # Created after the desk, so the deskrun volume takes its mode (1777) from the desk image.
     depends_on: [desk]
-    env_file:
-      - path: ./.env
-        required: true
+    # Settings one by one, never an env_file: the secrets are files (below), and `docker inspect` or
+    # `docker compose config` must not print them. Empty means the hub's default (hub/app/config.py).
     environment:
       HOME: /data/home
-      HUB_PORT: "7800"
       HUB_DATA: /data
-      CDP_URL: http://127.0.0.1:7802
-      DESKD_SOCKET: /run/desk/deskd.sock
-      VNC_SOCKET: /run/desk/vnc.sock
-      HOST_HOME: ${HOME}
-      # read-only views of this machine, see the volumes below
-      PROJECTS_DIR: /ro/projects
-      SESSIONS_DIR: /ro/sessions
-      WEBHOOK_FILE: /run/secrets/discord-webhook.url
+      RUN_DIR: /run/desk
       EXCHANGE_DIR: /exchange
-      EXCHANGE_HOST_DIR: ${HOME}/.local/share/deskmate/exchange
+      TZ: ${TZ:-UTC}
+      HUB_PORT: ${HUB_PORT:-7800}
+      DESKMATE_OWNER: ${DESKMATE_OWNER:-}
+      DESKMATE_DATA_DIR: ${DESKMATE_DATA_DIR:?run ./deskmate setup first}
+      HOST_HOME: ${HOST_HOME:-}
+      DESK_MONITORS: ${DESK_MONITORS:-2}
+      DESK_MONITOR_SIZE: ${DESK_MONITOR_SIZE:-1280x800}
+      CLAUDE_CONFIG_DIRS: ${CLAUDE_CONFIG_DIRS:-}
+      SESSIONS_ROOTS: ${SESSIONS_ROOTS:-}
+      DOCS_DIR: ${DOCS_DIR:-}
+      READ_MEMORY: ${READ_MEMORY:-}
+      READ_GIT: ${READ_GIT:-}
+      SECRETARY: ${SECRETARY:-}
+      SECRETARY_DIGEST_MODEL: ${SECRETARY_DIGEST_MODEL:-}
+      SECRETARY_BRIEF_MODEL: ${SECRETARY_BRIEF_MODEL:-}
+      SECRETARY_ASK_MODEL: ${SECRETARY_ASK_MODEL:-}
+      SECRETARY_PAUSE_AT: ${SECRETARY_PAUSE_AT:-}
+      SECRETARY_MAX_DIGESTS_PER_DAY: ${SECRETARY_MAX_DIGESTS_PER_DAY:-}
+      BRIEF_AT: ${BRIEF_AT:-}
+      MORNING_POST_AT: ${MORNING_POST_AT:-}
+      NOTIFY_KIND: ${NOTIFY_KIND:-}
+    secrets:
+      - hub_token
+      - claude_token
+      - notify_url
     volumes:
       - deskrun:/run/desk
-      - ${HOME}/.local/share/deskmate/hub:/data
-      - ${HOME}/.local/share/deskmate/exchange:/exchange
-      # The secretary reads; it never writes (D4). Secrets are refused by path in the Ask tool.
-      - ${HOME}/Projects:/ro/projects:ro
-      - ${HOME}/.claude/projects:/ro/sessions:ro
-      - ${HOME}/.config/claude-notify/discord-webhook.url:/run/secrets/discord-webhook.url:ro
+      # Long syntax: a missing folder stops `up` with an error instead of Docker creating it as root.
+      - type: bind
+        source: ${DESKMATE_DATA_DIR:?run ./deskmate setup first}/hub
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DESKMATE_DATA_DIR:?run ./deskmate setup first}/exchange
+        target: /exchange
+        bind:
+          create_host_path: false
+
+# Files under the data folder (0600), mounted at /run/secrets/<name>. Each must exist; empty is fine.
+secrets:
+  hub_token:
+    file: ${DESKMATE_DATA_DIR:?run ./deskmate setup first}/secrets/hub-token
+  claude_token:
+    file: ${DESKMATE_DATA_DIR:?run ./deskmate setup first}/secrets/claude-token
+  notify_url:
+    # Or a file the user already keeps elsewhere (NOTIFY_URL_FILE), mounted read-only, never copied.
+    file: ${NOTIFY_URL_FILE:-${DESKMATE_DATA_DIR}/secrets/notify-url}
 
 volumes:
   desk-home:

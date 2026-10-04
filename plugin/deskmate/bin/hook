@@ -1,0 +1,45 @@
+#!/bin/sh
+# Claude Code hook → Deskmate hub. Posts the hook's JSON (stdin) to the hub and never holds up a
+# turn: it gives up after 1 s, prints nothing and always exits 0.
+#   hook pre-tool | stop | session-end | pre-compact
+# Settings come from client.env, which `./deskmate connect` writes. The token stays in its 0600 file
+# and reaches curl through a 0600 header file, never a command line: other local users can read
+# command lines with ps or from /proc.
+
+event=$1
+case $event in
+  pre-tool | stop | session-end | pre-compact) ;;
+  *) exit 0 ;;
+esac
+
+conf=${XDG_CONFIG_HOME:-$HOME/.config}/deskmate/client.env
+[ -r "$conf" ] || conf=$HOME/.config/deskmate/client.env
+[ -r "$conf" ] || exit 0
+hub_url='' token_file='' secretary=on
+cr=$(printf '\r')
+while IFS= read -r line || [ -n "$line" ]; do
+  line=${line%"$cr"}
+  case $line in
+    HUB_URL=*) hub_url=${line#HUB_URL=} ;;
+    TOKEN_FILE=*) token_file=${line#TOKEN_FILE=} ;;
+    SECRETARY=*) secretary=${line#SECRETARY=} ;;
+  esac
+done < "$conf"
+
+# No token file: Deskmate is not set up, or was removed. The secretary's events stop while it is off.
+[ -n "$token_file" ] && [ -r "$token_file" ] || exit 0
+[ "$event" = pre-tool ] || [ "$secretary" != off ] || exit 0
+[ -n "$hub_url" ] || exit 0
+command -v curl > /dev/null 2>&1 || exit 0
+token=$(tr -d ' \t\r\n' < "$token_file" 2> /dev/null)
+[ -n "$token" ] || exit 0
+
+umask 077
+header=$(mktemp "${TMPDIR:-/tmp}/deskmate-hook.XXXXXX" 2> /dev/null) || exit 0
+trap 'rm -f "$header"' EXIT
+trap 'exit 0' HUP INT TERM
+# printf is a shell builtin, so the token is never an argument of a separate process.
+printf 'Authorization: Bearer %s\n' "$token" > "$header" || exit 0
+curl -s -m 1 -o /dev/null -H @"$header" -H 'Content-Type: application/json' \
+  --data-binary @- "$hub_url/hooks/$event" 2> /dev/null
+exit 0

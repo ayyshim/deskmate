@@ -1,0 +1,21 @@
+{
+  "name": "deskmate",
+  "owner": {
+    "name": "Deskmate"
+  },
+  "metadata": {
+    "description": "Deskmate's Claude Code plugins: the shared desk, and optional working habits."
+  },
+  "plugins": [
+    {
+      "name": "deskmate",
+      "source": "./deskmate",
+      "description": "Use the shared Deskmate desk for browser and screen work. Its hooks link each session to the desk's activity feed and tell the secretary when a turn or session ends."
+    },
+    {
+      "name": "habits",
+      "source": "./habits",
+      "description": "Working habits: changelog entries, design docs and a wrap-up, with an end-of-turn changelog check."
+    }
+  ]
+}

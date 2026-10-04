@@ -1,8 +1,9 @@
-"""The hub's HTTP side on 127.0.0.1:7800: MCP, hooks, the web UI and its live views.
+"""The hub's HTTP side on 127.0.0.1:<HUB_PORT>: MCP, hooks, the web UI and its live views.
 
-Auth (§3.5): /mcp and /hooks take `Authorization: Bearer <DESKMATE_TOKEN>`. The UI takes a cookie
-set once by the sign-in link that `make open` prints. Requests from another origin are refused,
-because the desk's own browser shares this machine's localhost.
+Auth (§3.5, auth.py): /mcp and /hooks take `Authorization: Bearer <hub token>`. The UI takes a
+cookie set once by the sign-in link that `./deskmate open` prints. Requests from another origin are
+refused, because the desk's own browser can reach this machine's localhost, and every request must
+carry the hub's own address as its Host (auth.TrustedHosts), or it gets 421.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import hashlib
 import hmac
 import json
 import logging
@@ -22,36 +22,20 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
-from . import config, db, desk, journal, knock, sessions
+from . import auth, config, db, desk, journal, knock, notify, sessions
 from .browser import browser
 from .lease import lease
 from .tools import mcp
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
-COOKIE = "deskmate"
-ALLOWED_ORIGINS = {f"http://127.0.0.1:{config.PORT}", f"http://localhost:{config.PORT}"}
-
-
-def _ui_secret() -> str:
-    return hmac.new(config.TOKEN.encode(), b"deskmate-ui", hashlib.sha256).hexdigest()
-
-
-def _bearer_ok(headers) -> bool:
-    auth = headers.get("authorization", "")
-    return bool(config.TOKEN) and hmac.compare_digest(auth, f"Bearer {config.TOKEN}")
-
-
-def _ui_ok(cookies, headers) -> bool:
-    origin = headers.get("origin")
-    if origin and origin not in ALLOWED_ORIGINS:
-        return False
-    return hmac.compare_digest(cookies.get(COOKIE, ""), _ui_secret())
-
-
-def _need_ui(request: Request) -> None:
-    if not _ui_ok(request.cookies, request.headers):
-        raise HTTPException(401, "Sign in with the link from `make open`.")
+# Kept as module names so the routes below read as before; the definitions live in auth.py.
+COOKIE = auth.COOKIE
+ALLOWED_ORIGINS = auth.ALLOWED_ORIGINS
+_ui_secret = auth.ui_secret
+_bearer_ok = auth.bearer_ok
+_ui_ok = auth.ui_ok
+_need_ui = auth.need_ui
 
 
 class BearerGuard:
@@ -71,7 +55,7 @@ class BearerGuard:
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     if not config.TOKEN:
-        raise SystemExit("DESKMATE_TOKEN is empty. Run `make env`.")
+        raise SystemExit("The hub token is empty: run `./deskmate setup` (it writes secrets/hub-token in the data folder).")
     db.conn()
     tasks = [asyncio.create_task(lease.watch_idle())]
 
@@ -95,6 +79,14 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(auth.TrustedHosts)  # the whole app: pages, API, /mcp, /hooks, /vnc, static files
+try:
+    # The secretary (M4–M6) lives in app/secretary and brings its own /api/sec routes.
+    from .secretary.api import router as _secretary_router
+
+    app.include_router(_secretary_router)
+except ImportError:
+    pass
 _mcp_app = mcp.streamable_http_app()
 app.router.routes.append(Route("/mcp", endpoint=BearerGuard(_mcp_app.routes[0].endpoint)))
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -115,7 +107,7 @@ async def index(request: Request):
 @app.get("/login")
 async def login(t: str = ""):
     if not config.TOKEN or not hmac.compare_digest(t, config.TOKEN):
-        raise HTTPException(401, "That sign-in link is not valid. Run `make open` for a fresh one.")
+        raise HTTPException(401, "That sign-in link is not valid. Run `./deskmate open` for a fresh one.")
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie(COOKIE, _ui_secret(), httponly=True, samesite="strict", max_age=400 * 86400)
     return resp
@@ -132,6 +124,8 @@ async def state(request: Request):
     st["label"] = sessions.label(st["holder"]) if st["holder"] else None
     return {
         "owner": config.OWNER,
+        "network": config.NETWORK,
+        "notify": notify.kind(),
         "monitors": {"count": count, "width": w, "height": h},
         "lease": st,
         "sessions": sessions.active(),
@@ -296,7 +290,7 @@ async def vnc(ws: WebSocket):
 
 @app.post("/hooks/{event}")
 async def hooks(event: str, request: Request):
-    """Claude Code hooks (see scripts/hook.sh). Must answer fast: the hook gives up after 1 s."""
+    """Claude Code hooks (plugin/deskmate/bin/hook). Must answer fast: the hook gives up after 1 s."""
     if not _bearer_ok(request.headers):
         raise HTTPException(401)
     try:

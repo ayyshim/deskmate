@@ -1,0 +1,2 @@
+# Changelog files are append-only. Union merge keeps both sides when two people add entries on the same day.
+changelog/**/*.md merge=union

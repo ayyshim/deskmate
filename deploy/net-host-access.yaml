@@ -1,0 +1,32 @@
+# Network mode "host-access": Docker Desktop (macOS, Windows, Linux) and rootless Docker before Engine
+# 29.5, which have no real host networking. Both containers sit on a private network of their own.
+#
+# The desk's browser is pointed at this machine: its entrypoint resolves host.docker.internal at start
+# and maps localhost, *.localhost, 127.0.0.1 and ::1 to that address (Chromium --host-resolver-rules),
+# for pages, fetch, XHR and WebSockets alike. A dev server sees the Host it expects (localhost:5173).
+# Docker Desktop reaches servers that listen only on this machine's 127.0.0.1; one that listens only
+# on ::1 may not answer (start it with --host 127.0.0.1). Docker Engine on Linux reaches only servers
+# that listen on its bridge address or 0.0.0.0, and a host firewall may still drop that: use "host" there.
+#
+# The hub publishes 127.0.0.1:$HUB_PORT only, on the same port inside, because its Host and Origin
+# allow-lists are built from it. It reaches DevTools through the desk's socat on port 7812 of the
+# private network, never published, by IP address (DevTools refuses any other Host header).
+services:
+  desk:
+    networks: [desk]
+    extra_hosts:
+      # Docker Desktop provides this name itself; Docker Engine needs it spelled out.
+      - host.docker.internal:host-gateway
+    environment:
+      DESK_NETWORK: host-access
+  hub:
+    networks: [desk]
+    ports:
+      - "127.0.0.1:${HUB_PORT:-7800}:${HUB_PORT:-7800}"
+    environment:
+      DESK_NETWORK: host-access
+      HUB_BIND: 0.0.0.0  # inside the hub's own network namespace; see the ports line for what is published
+      CDP_URL: http://desk:7812
+
+networks:
+  desk: {}

@@ -1,0 +1,26 @@
+{
+  "description": "Deskmate: link each deskmate tool call to its Claude Code session, and tell the secretary when a turn ends, a session ends or a compaction is coming. Each hook gives up after 1 second and never holds up a turn.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__deskmate__.*",
+        "hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/hook\" pre-tool", "timeout": 5}]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/hook\" stop", "timeout": 5}]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/hook\" session-end", "timeout": 5}]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [{"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/hook\" pre-compact", "timeout": 5}]
+      }
+    ]
+  }
+}

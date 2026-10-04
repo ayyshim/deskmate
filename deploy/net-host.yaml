@@ -1,0 +1,18 @@
+# Network mode "host": Linux with Docker Engine (rootful, or rootless from Engine 29.5), and Docker
+# Engine inside WSL2. Both containers share this machine's network, so the desk's localhost IS this
+# machine's localhost: every dev server opens in the desk's browser as it does in yours.
+#
+# Nothing is published. The hub listens on 127.0.0.1:$HUB_PORT of this machine and Chromium's DevTools
+# on 127.0.0.1:$CDP_PORT, where any local program can reach it (that comes with this mode). The desk's
+# X display :$DESK_DISPLAY sits in this machine's abstract socket namespace, so setup picks a free one.
+services:
+  desk:
+    network_mode: host
+    environment:
+      DESK_NETWORK: host
+  hub:
+    network_mode: host
+    environment:
+      DESK_NETWORK: host
+      HUB_BIND: 127.0.0.1
+      CDP_URL: http://127.0.0.1:${CDP_PORT:-7802}

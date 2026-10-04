@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "Acme shop",
+  "changelog_dir": "changelog",
+  "agents": { "git": "git@git.example.com:acme/claude-agents.git", "path": "agents" },
+  "repos": [
+    { "name": "mobile", "folder": "mobile-app" }
+  ],
+  "skip_repos": ["sandbox"],
+  "check_mode": "remind",
+  "lint_deny": ["staging.acme.internal"]
+}

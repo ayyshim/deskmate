@@ -30,6 +30,17 @@ def publish(kind: str, data: Any) -> None:
             pass
 
 
+def chars(text: str | None) -> str:
+    n = len(text or "")
+    return f"{n} character" + ("" if n == 1 else "s")
+
+
+def mask(text: str | None) -> str:
+    """How typed text appears in the journal, the live feed and the logs: its length, never the text.
+    A session types passwords and one-time codes as readily as search terms."""
+    return f"“…” ({chars(text)})"
+
+
 def activity(session: str | None, tool: str, arg: str = "", why: str = "", status: str = "ok", note: str = "") -> dict:
     row = {
         "ts": time.time(),

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>Deskmate setup</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/IBMPlexSans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="wizard.css">
+<script src="wizard.js" defer></script>
+</head>
+<body>
+<!-- ./deskmate setup serves this page from 127.0.0.1 (setup/deskmate_setup/webui.py). wizard.js renders
+     whatever steps the setup server sends; nothing on this page talks to any other host. -->
+<a class="skip" href="#wzMain">Skip to the current step</a>
+<header class="top">
+  <div class="top-in">
+    <span class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect x="2.5" y="3.5" width="21" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 22.5h8M13 17.5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle class="dot" cx="18.5" cy="8.5" r="2.2"/></svg>
+      Deskmate
+    </span>
+    <span class="top-mode" id="topMode">Setup</span>
+    <span class="top-sp"></span>
+    <span class="top-where" id="topWhere"></span>
+    <button type="button" class="iconbtn" id="themeBtn" aria-label="Colour theme: follows this computer" title="Colour theme">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+<main class="wrap">
+  <noscript><p class="wz-msg bad">Setup needs JavaScript in this tab. Run <code>./deskmate setup --terminal</code> to answer the same questions in the terminal.</p></noscript>
+  <div class="wz" id="wz">
+    <aside class="wz-side">
+      <nav aria-label="Setup steps"><ol class="wz-steps" id="wzSteps"></ol></nav>
+      <div class="card sec-state" id="wzSideCard"></div>
+    </aside>
+    <div class="wz-main" id="wzMain" tabindex="-1">
+      <p class="note" role="status"><span class="spin" aria-hidden="true"></span> Loading setup…</p>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="vh" id="announce" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

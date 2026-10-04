@@ -1,0 +1,6 @@
+{
+  "name": "habits",
+  "version": "0.1.0",
+  "description": "Deskmate working habits: changelog entries, design docs, wrap-up, and an end-of-turn changelog check",
+  "author": { "name": "Deskmate" }
+}

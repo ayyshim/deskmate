@@ -11,8 +11,8 @@
 # replaced by Chromium, because CDP gives each session its own tab and a cheap page outline. Xvfb and
 # x11vnc are replaced by Xvnc, because only Xvnc gives one screen several real outputs (monitors.py).
 #
-# The bot user is uid 10001, not 1000: the desk shares the host's network namespace, and a uid
-# that maps to a real host user could pass X11 "localuser" checks on the host's own display.
+# The bot user is uid 10001, not 1000: in host mode the desk shares the host's network namespace, and
+# a uid that maps to a real host user could pass X11 "localuser" checks on the host's own display.
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -34,17 +34,19 @@ COPY browser.desktop terminal.desktop /usr/share/applications/
 COPY wallpaper.svg terminal.svg /usr/share/deskmate/
 RUN rsvg-convert -w 64 -h 64 /usr/share/deskmate/terminal.svg -o /usr/share/deskmate/terminal.png
 COPY deskd.mjs /opt/desk/deskd.mjs
-COPY browser.sh entrypoint.sh monitors.py /opt/desk/
+COPY browser.sh chromium-window.sh entrypoint.sh monitors.py /opt/desk/
 RUN chmod +x /opt/desk/*.sh /opt/desk/monitors.py /etc/xdg/openbox/autostart
 
+# Defaults; compose passes the values from .env (see entrypoint.sh for what each one does).
 USER bot
 WORKDIR /home/bot
 ENV HOME=/home/bot \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
-    MONITORS=2 \
-    MONITOR_SIZE=1280x800 \
-    DISPLAY_NUM=87 \
+    DESK_MONITORS=2 \
+    DESK_MONITOR_SIZE=1280x800 \
+    DESK_DISPLAY=87 \
+    DESK_NETWORK=host \
     CDP_PORT=7802 \
     RUN_DIR=/run/desk
 

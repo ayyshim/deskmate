@@ -175,7 +175,7 @@ async function typeRun(text, delay) {
       child.stdin.end(text);
     });
   } catch (err) {
-    console.log(`type_text: xdotool could not type ${JSON.stringify(text.slice(0, 40))} (${err.message.split('\n')[1] ?? err.message}); pasting instead`);
+    console.log(`type_text: xdotool could not type a line of ${text.length} characters (${err.message.split('\n')[1] ?? err.message}); pasting instead`);
     await pasteText(text);
   }
 }
@@ -332,7 +332,8 @@ async function handle(body) {
 
     case 'application': {
       const app = String(body.application ?? '');
-          const browser = ['chromium', '--user-data-dir=' + HOME + '/.config/deskmate-chromium', '--no-sandbox', '--test-type'];
+      // A window of the desk's one Chromium, with the same network rules (see chromium-window.sh).
+      const browser = ['/opt/desk/chromium-window.sh'];
       const cmd = { browser, chromium: browser, terminal: ['xterm', '-fa', 'Monospace', '-fs', '11'] }[app];
       if (!cmd) throw new Error(`unknown application "${app}" (browser, terminal)`);
       const child = execFile(cmd[0], cmd.slice(1), { detached: true, stdio: 'ignore' });
@@ -410,6 +411,18 @@ const enqueue = (fn) => {
 };
 
 // ---------- http ----------
+/**
+ * An action as the log shows it: typed and pasted text, clipboard text and file contents appear as
+ * their length only. A session types passwords and one-time codes as readily as search terms, and
+ * `docker logs` is easy to paste into a chat when asking for help.
+ */
+function forLog(body) {
+  const out = { ...body };
+  if (typeof out.text === 'string') out.text = `<${out.text.length} characters>`;
+  if (typeof out.data === 'string') out.data = `<${out.data.length} base64 characters>`;
+  return out;
+}
+
 function authorized(req) {
   if (!TOKEN) return true;
   const auth = req.headers.authorization ?? '';
@@ -455,8 +468,7 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         const data = await enqueue(() => handle(body));
-        const log = body.action === 'write_file' ? { ...body, data: '<redacted>' } : body;
-        console.log(`${new Date().toISOString()} ${JSON.stringify(log)}`.slice(0, 200));
+        console.log(`${new Date().toISOString()} ${JSON.stringify(forLog(body))}`.slice(0, 200));
         return json(res, 200, data === undefined ? { success: true } : { success: true, data });
       } catch (err) {
         console.log(`${new Date().toISOString()} ${body.action} ERROR ${err.message}`);

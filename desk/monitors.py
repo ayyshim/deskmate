@@ -3,8 +3,8 @@
 
 Xvnc creates a real RandR output per screen when a VNC client asks for a multi-screen layout
 (the ExtendedDesktopSize extension). Real outputs matter: Chromium's getScreenDetails() reads
-outputs, not RandR 1.5 "monitors", so `xrandr --setmonitor` on Xvfb is not enough for apps such as
-edm_react that put their second window on a second screen.
+outputs, not RandR 1.5 "monitors", so `xrandr --setmonitor` on Xvfb is not enough for apps that
+put their second window on a second screen, such as a point-of-sale app's customer display.
 
     monitors.py <vnc unix socket> <monitor width> <monitor height> <count>
 """

@@ -1,5 +1,4 @@
-# Same pins as Fleet where they overlap (fleet/backend/requirements.txt), so the two agree on the
-# Agent SDK and the MCP version it pulls in.
+# Pinned. The Agent SDK and the MCP version it pulls in must agree, so both move together.
 fastapi==0.141.1
 uvicorn[standard]==0.41.0
 httpx==0.28.1
