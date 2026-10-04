@@ -1,0 +1,5 @@
+# For the hub's test suite only; the image carries this file but does not install it. Run the tests with:
+#   docker build -t <tag> hub
+#   docker run --rm -v "$PWD/hub/tests:/app/tests:ro" <tag> \
+#     sh -c 'pip install -q -r /app/requirements-test.txt && python -m pytest -q tests'
+pytest==8.4.2

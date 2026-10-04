@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deskmate</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect x='2.5' y='3.5' width='21' height='14' rx='2.5' fill='none' stroke='%232D58D2' stroke-width='2'/%3E%3Cpath d='M9 22.5h8M13 17.5v5' stroke='%232D58D2' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='18.5' cy='8.5' r='2.2' fill='%23A35C06'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="preload" href="/static/fonts/IBMPlexSans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/secretary.css">
 </head>
 <body>
 <header class="top">
@@ -17,15 +17,20 @@
       Deskmate
     </span>
     <nav class="views" role="tablist" aria-label="Views">
-      <button role="tab" data-view="desk" aria-selected="true">Desk</button>
-      <button role="tab" data-view="secretary" aria-selected="false">Secretary</button>
+      <button role="tab" id="tab-desk" data-view="desk" aria-selected="true" aria-controls="view-desk">Desk</button>
+      <button role="tab" id="tab-secretary" data-view="secretary" aria-selected="false" aria-controls="view-secretary">Secretary</button>
     </nav>
+    <div class="meter" id="planMeter" hidden>
+      <span>Plan</span>
+      <span class="bar" aria-hidden="true"><i style="width:0%"></i></span><b class="tnum" id="meter5">5 h –</b>
+      <span class="tnum" id="meter7"></span>
+    </div>
     <span class="conn" id="conn"><i></i><span>connecting</span></span>
   </div>
 </header>
 
 <main class="wrap">
-  <section id="view-desk">
+  <section id="view-desk" role="tabpanel" aria-labelledby="tab-desk">
     <div class="desk-grid">
       <div class="desk-main">
         <div class="strip">
@@ -77,15 +82,48 @@
     </div>
   </section>
 
-  <section id="view-secretary" hidden>
-    <div class="soon">
-      <h1 class="h1">Secretary</h1>
-      <p class="lede">Today, Timeline, Sessions, Board, Open loops, Decisions and Ask arrive with milestones M4–M6. The prototype shows how they will look.</p>
+  <section id="view-secretary" role="tabpanel" aria-labelledby="tab-secretary" hidden>
+    <div class="sec-grid">
+      <div class="sec-side">
+        <nav class="subnav" aria-label="Secretary pages">
+          <a href="#today" data-sec="today">Today</a>
+          <a href="#timeline" data-sec="timeline">Timeline</a>
+          <a href="#sessions" data-sec="sessions">Sessions <span class="count" id="sessCount"></span></a>
+          <a href="#board" data-sec="board">Board</a>
+          <a href="#loops" data-sec="loops">Open loops <span class="count" id="loopCount"></span></a>
+          <a href="#decisions" data-sec="decisions">Decisions</a>
+          <a href="#ask" data-sec="ask">Ask</a>
+          <a href="#hygiene" data-sec="hygiene">Hygiene <span class="count" id="hygCount"></span></a>
+        </nav>
+        <div class="card sec-state" id="secState">
+          <div class="row"><span>Secretary</span><b id="secOn">…</b></div>
+          <div class="row"><span>Digests today</span><b class="tnum" id="secDigests">–</b></div>
+          <div class="row"><span>Pauses at</span><b class="tnum" id="secPauseAt">–</b></div>
+          <div class="row"><span>Model</span><b id="secModel">–</b></div>
+          <div class="row" id="secQueuedRow" hidden><span>Waiting for a digest</span><b class="tnum" id="secQueued">0</b></div>
+          <p class="note warnline" id="secNoToken" hidden>No Claude login, so no digests, brief or Ask; everything else works. Add one with <code>./deskmate config set-secret claude-token</code> (a token from <code>claude setup-token</code>).</p>
+          <p class="note" id="secOffNote" hidden>The secretary is off. Nothing is read and no model is called.</p>
+          <button class="btn sm" id="secPause" type="button">Pause secretary</button>
+        </div>
+      </div>
+      <div class="sec-body" id="secBody">
+        <div class="sec-banner" id="secBanner" role="status" hidden></div>
+        <article id="sec-today" hidden></article>
+        <article id="sec-timeline" hidden></article>
+        <article id="sec-sessions" hidden></article>
+        <article id="sec-session" hidden></article>
+        <article id="sec-board" hidden></article>
+        <article id="sec-loops" hidden></article>
+        <article id="sec-decisions" hidden></article>
+        <article id="sec-ask" hidden></article>
+        <article id="sec-hygiene" hidden></article>
+      </div>
     </div>
   </section>
 </main>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <script type="module" src="/static/app.js"></script>
+<script type="module" src="/static/secretary.js"></script>
 </body>
 </html>

@@ -13,6 +13,10 @@ class DeskError(RuntimeError):
     """deskd refused or failed an action; the message is deskd's own."""
 
 
+class DeskDown(DeskError):
+    """deskd did not answer at all: the desk container is not running, or still starting."""
+
+
 _client = httpx.AsyncClient(
     transport=httpx.AsyncHTTPTransport(uds=config.DESKD_SOCKET),
     base_url="http://deskd",
@@ -24,7 +28,7 @@ async def act(action: str, **params):
     try:
         r = await _client.post("/computer-use/computer", json={"action": action, **params})
     except httpx.HTTPError as exc:
-        raise DeskError(f"the desk is not answering ({exc.__class__.__name__}). Is the desk container running?") from exc
+        raise DeskDown(f"the desk is not answering ({exc.__class__.__name__}). Is the desk container running?") from exc
     body = r.json()
     if not body.get("success"):
         raise DeskError(body.get("error") or "deskd failed")

@@ -5,7 +5,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DEFAULT_TIMEOUT=120 \
-    PIP_RETRIES=10
+    PIP_RETRIES=10 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_ROOT_USER_ACTION=ignore
 
 # git reads the repos' history for the hub sweep; ripgrep backs the secretary's Grep tool.
 RUN apt-get update \
@@ -32,5 +34,7 @@ RUN python -c "import sys, urllib.request; open('/tmp/novnc.tar.gz', 'wb').write
 # git refuses to read repos owned by another uid unless told they are safe; they are mounted read-only.
 RUN git config --system --add safe.directory '*'
 
+# Not installed: only the test run installs it (see the file).
+COPY requirements-test.txt .
 COPY app ./app
 CMD ["python", "-m", "app.main"]

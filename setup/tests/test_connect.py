@@ -130,6 +130,9 @@ class Sandbox:
             "XDG_CACHE_HOME": str(self.home / ".cache"), "DISABLE_AUTOUPDATER": "1",
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1",
             "NO_COLOR": "1",
+            # Never the clone's real .env: it names the real data folder, and code that falls back to the
+            # settings (uninstall after disconnect) would then edit the real installed.json.
+            "DESKMATE_ENV_FILE": str(self.root / "repo.env"),
         }
         if use_config_dir:
             self.env["CLAUDE_CONFIG_DIR"] = str(self.config)
@@ -704,7 +707,11 @@ class Connect(unittest.TestCase):
             self.assertEqual(json.loads(sb.claude("plugin", "list", "--json").stdout), [])
             markets = json.loads(sb.claude("plugin", "marketplace", "list", "--json").stdout or "[]")
             self.assertNotIn("deskmate", [m.get("name") for m in markets])
-            self.assertFalse(sb.settings.exists())
+            # Claude Code itself may leave empty plugin maps behind ({"enabledPlugins": {}, ...});
+            # nothing of Deskmate's may remain.
+            if sb.settings.exists():
+                left = sb.read_json(sb.settings)
+                self.assertEqual({k: v for k, v in left.items() if v}, {})
             self.assertFalse((sb.data / "installed.json").exists())
 
 

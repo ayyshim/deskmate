@@ -103,6 +103,7 @@ READ_GIT = _on("READ_GIT")
 SECRETARY = _on("SECRETARY")
 OAUTH_TOKEN = secret("claude_token", "CLAUDE_CODE_OAUTH_TOKEN")
 PAUSE_AT = float(_env("SECRETARY_PAUSE_AT", "0.60"))
+PAUSE_AT_WEEK = float(_env("SECRETARY_PAUSE_AT_WEEK", "0.85"))  # the plan's 7-day window
 MAX_DIGESTS = int(_env("SECRETARY_MAX_DIGESTS_PER_DAY", "40"))
 DIGEST_MODEL = _env("SECRETARY_DIGEST_MODEL", "claude-haiku-4-5-20251001")
 BRIEF_MODEL = _env("SECRETARY_BRIEF_MODEL", "claude-sonnet-5-5")

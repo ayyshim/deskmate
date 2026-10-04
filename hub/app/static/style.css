@@ -1,5 +1,13 @@
 /* Deskmate hub UI. Same tokens as the prototype (claude/design/deskmate). The live screen keeps
    its own dark bezel in both themes; everything else follows the theme. */
+
+/* Fonts are served from this folder (fonts/, SIL Open Font License in fonts/OFL.txt), so the page
+   makes no request to anyone else. Plex Sans is one variable file covering 400–600. */
+@font-face{font-family:"IBM Plex Sans";font-style:normal;font-weight:400 600;font-stretch:100%;font-display:swap;src:url(fonts/IBMPlexSans-latin.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:400;font-display:swap;src:url(fonts/IBMPlexMono-400-latin.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:500;font-display:swap;src:url(fonts/IBMPlexMono-500-latin.woff2) format("woff2")}
+@font-face{font-family:"Bricolage Grotesque";font-style:normal;font-weight:700;font-display:swap;src:url(fonts/BricolageGrotesque-700-latin.woff2) format("woff2")}
+
 :root{
   --bg:#EDF0F4; --surface:#FFFFFF; --sunk:#F5F7FA; --ink:#121A24; --muted:#566173; --faint:#8992A1;
   --line:#D8DEE6; --line-strong:#C1C9D4;

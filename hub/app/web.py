@@ -38,6 +38,19 @@ _ui_ok = auth.ui_ok
 _need_ui = auth.need_ui
 
 
+class RevalidatedStatic(StaticFiles):
+    """Static files the browser may keep but must check first (Cache-Control: no-cache; a 304 is cheap).
+    Without it, the heuristic cache can serve last version's ES modules after `./deskmate update`."""
+
+    async def get_response(self, path: str, scope) -> Response:
+        resp = await super().get_response(path, scope)
+        resp.headers.setdefault("Cache-Control", "no-cache")
+        return resp
+
+
+DESK_DOWN = "The desk is not running, so its Downloads folder cannot be read. Start it with ./deskmate up."
+
+
 class BearerGuard:
     """Wraps the MCP endpoint: a bearer token or 401."""
 
@@ -89,9 +102,9 @@ except ImportError:
     pass
 _mcp_app = mcp.streamable_http_app()
 app.router.routes.append(Route("/mcp", endpoint=BearerGuard(_mcp_app.routes[0].endpoint)))
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+app.mount("/static", RevalidatedStatic(directory=STATIC), name="static")
 if Path("/opt/novnc").is_dir():
-    app.mount("/novnc", StaticFiles(directory="/opt/novnc"), name="novnc")
+    app.mount("/novnc", RevalidatedStatic(directory="/opt/novnc"), name="novnc")
 
 
 # ---------------------------------------------------------------- pages
@@ -99,8 +112,9 @@ if Path("/opt/novnc").is_dir():
 
 @app.get("/")
 async def index(request: Request):
+    # Both answers live at "/": neither may be cached, or the page after signing in could be the old sign-in page.
     if not _ui_ok(request.cookies, request.headers):
-        return FileResponse(STATIC / "signin.html")
+        return FileResponse(STATIC / "signin.html", headers={"Cache-Control": "no-store"})
     return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
 
@@ -219,16 +233,27 @@ async def upload(request: Request, name: str):
 
 @app.get("/api/downloads")
 async def downloads(request: Request):
+    """The desk's ~/Downloads. The Desk page asks every 15 s; with the desk down that is a 503 and one
+    sentence, not a traceback in the log each time."""
     _need_ui(request)
-    data = await desk.act("list_files", path="Downloads")
-    return [e for e in data.get("entries", []) if not e.get("dir") and not e["name"].endswith((".crdownload", ".part"))]
+    try:
+        data = await desk.act("list_files", path="Downloads")
+    except desk.DeskDown:
+        raise HTTPException(503, DESK_DOWN) from None
+    return [e for e in (data or {}).get("entries", [])
+            if not e.get("dir") and not e["name"].endswith((".crdownload", ".part"))]
 
 
 @app.get("/api/downloads/{name}")
 async def download(name: str, request: Request):
     _need_ui(request)
     fname = Path(name).name
-    data = await desk.act("read_file", path=f"Downloads/{fname}")
+    try:
+        data = await desk.act("read_file", path=f"Downloads/{fname}")
+    except desk.DeskDown:
+        raise HTTPException(503, DESK_DOWN) from None
+    except desk.DeskError:
+        raise HTTPException(404, "That file is no longer in the desk's Downloads folder.") from None
     return Response(
         base64.b64decode(data["data"]),
         media_type="application/octet-stream",

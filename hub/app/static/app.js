@@ -102,7 +102,7 @@ function renderSessions() {
     let st = ago(s.last_seen);
     if (knocking.has(s.id)) st = '<span class="pill p-knock">waiting on you</span>';
     else if (state.lease.holder === s.id) st = '<span class="pill p-info">holds input</span>';
-    const where = s.cwd ? s.cwd.replace(/^\/home\/[^/]+/, '~') : 'folder not known yet';
+    const where = s.cwd ? s.cwd.replace(/^\/(?:home|Users)\/[^/]+/, '~') : 'folder not known yet';
     return `<li><span class="dot" style="background:${colorOf(s.id)}"></span><span class="nm">${esc(s.letter)} · ${esc(s.display)}</span><span class="st">${st}<br>${tabs} tab${tabs === 1 ? '' : 's'}</span><span class="cw">${esc(where)}</span></li>`;
   }).join('');
 }
@@ -133,7 +133,7 @@ function renderKnocks() {
         <input type="text" id="knock-${k.id}" placeholder="Reply to the session (optional)" aria-label="Reply">
         <button class="btn" data-act="take">Take over</button>
         <button class="btn knock" data-act="resume">Resume</button>
-      </div><p class="note" style="margin-top:6px">Posted to your Discord at ${hhmmss(k.ts).slice(0, 5)}.</p></div>
+      </div><p class="note" style="margin-top:6px">Knocked at ${hhmmss(k.ts).slice(0, 5)}. If notifications are on, they went out then.</p></div>
     </div>`).join('');
   const ring = $('#ring');
   const knocking = state.knocks.length > 0;
@@ -190,6 +190,10 @@ function connectVNC() {
 
 function listen() {
   const es = new EventSource('/api/events');
+  // One event stream per tab: secretary.js listens on this one too (browsers allow only 6 connections per
+  // host over HTTP/1.1, and every stream holds one open for good).
+  window.deskmateEvents = es;
+  window.dispatchEvent(new Event('deskmate:events'));
   const conn = $('#conn');
   es.onopen = () => { conn.className = 'conn ok'; conn.lastElementChild.textContent = 'live'; refresh(); };
   es.onerror = () => { conn.className = 'conn bad'; conn.lastElementChild.textContent = 'reconnecting'; };
@@ -263,10 +267,8 @@ document.addEventListener('click', async (e) => {
         if (state.lease.human) await post('/api/handback');
         await refresh();
       }
-    } else if (b.dataset.view) {
-      for (const v of ['desk', 'secretary']) $(`#view-${v}`).hidden = v !== b.dataset.view;
-      document.querySelectorAll('.views button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
     }
+    // The Desk / Secretary tabs are routed by secretary.js through the URL hash.
   } catch (err) {
     toast(err.message);
   }

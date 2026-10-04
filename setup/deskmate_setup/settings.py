@@ -26,7 +26,10 @@ def repo_dir() -> Path:
 
 
 def env_path() -> Path:
-    return repo_dir() / ".env"
+    """The clone's .env. DESKMATE_ENV_FILE points elsewhere: the test suites use it so they never read or write
+    the real settings of the machine they run on."""
+    override = os.environ.get("DESKMATE_ENV_FILE", "").strip()
+    return Path(override) if override else repo_dir() / ".env"
 
 
 def home() -> str:
@@ -145,6 +148,10 @@ SETTINGS: list = [
             "Digests wait above this, so your own sessions come first. Ask still works, with a warning.",
             choices=[_c(f"{p / 100:.2f}", f"{p}%") for p in range(30, 95, 5)],
             advanced=True, step="secretary", comment="Pause digests when your 5-hour window is this full (0-1)."),
+    Setting("SECRETARY_PAUSE_AT_WEEK", "choice", "0.85", "Pause when your weekly limit is this full",
+            "The plan also has a 7-day limit. Above this, digests and the brief wait until it resets.",
+            choices=[_c(f"{p / 100:.2f}", f"{p}%") for p in range(50, 100, 5)],
+            advanced=True, step="secretary", comment="Pause digests and the brief when your 7-day window is this full (0-1)."),
     Setting("SECRETARY_MAX_DIGESTS_PER_DAY", "int", "40", "Digests a day, at most",
             "Sessions past the cap wait for the next day.",
             advanced=True, step="secretary", comment="At most this many session digests a day."),
@@ -424,7 +431,7 @@ def normalize(values: dict | None) -> dict:
             out[k] = util.join_list(v, ",")
         elif isinstance(v, bool):
             out[k] = "on" if v else "off"
-        elif isinstance(v, float) and k == "SECRETARY_PAUSE_AT":
+        elif isinstance(v, float) and k in ("SECRETARY_PAUSE_AT", "SECRETARY_PAUSE_AT_WEEK"):
             out[k] = f"{v:.2f}"
         else:
             out[k] = str(v).strip()
